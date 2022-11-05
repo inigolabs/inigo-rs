@@ -1,0 +1,219 @@
+schema
+@core(feature: "https://specs.apollo.dev/core/v0.1"),
+@core(feature: "https://specs.apollo.dev/join/v0.1")
+{
+  query : Query
+  mutation : Mutation
+}
+
+directive @core(feature: String!) repeatable on SCHEMA
+
+directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet) on FIELD_DEFINITION
+
+directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | INTERFACE
+
+directive @join__owner(graph: join__Graph!) on OBJECT | INTERFACE
+
+directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+scalar join__FieldSet
+
+enum join__Graph {
+  STARWARS @join__graph(name: "starwars" url: "http://192.168.49.2:30013/query")
+}
+
+scalar Void
+
+type Query @join__owner(graph: STARWARS) {
+  version: Version!
+
+  login(username: String!, password: String!) : String
+  logout: Boolean!
+
+  user: User
+
+  films: [Film!]!
+  people: [Person!]!
+  planets: [Planet!]!
+  species: [Species!]!
+  starships: [Starship!]!
+  vehicles: [Vehicle!]!
+
+  film(title: String!) : Film
+}
+
+type Mutation @join__owner(graph: STARWARS) {
+  userAdd(input : UserAddInput!) : ID
+  userRemove(userID : ID!) : Boolean!
+
+  filmAdd(title: String!, input: FilmInput!) : String
+  filmRemove(title: String!, removePlanets: Boolean) : Int
+
+  sanitize : Void
+}
+
+input UserAddInput {
+  username : String!
+  password : String!
+  name : String!
+  profile : String!
+  roles : [String!]!
+}
+
+type Version {
+  name : String!
+  version : String!
+  commit : String!
+  date : String!
+}
+
+type User {
+  username : String!
+  password : String!
+  name : String!
+  profile : String!
+  roles : [String!]!
+}
+
+type Film {
+  id : ID!
+  title : String!
+  director : String!
+  episodeId : Int!
+  openingCrawl : String!
+  producer : String! @deprecated
+  characters : [Person!]!
+  planets : [Planet!]!
+  species : [Species!]!
+  starships : [Starship!]!
+  vehicles : [Vehicle!]! @access(role:["viewer"], depth: 1)
+
+  error : Boolean
+  panic : Boolean
+  count : Int
+}
+
+type Person {
+  id : ID!
+  name : String!
+  ssn : String!
+  birthYear : String!
+  eyeColor : String!
+  gender : String!
+  hairColor : String!
+  height : Int!
+  mass : Float
+  skinColor : String
+  pilotedStarship : [Starship!]!
+  pilotedVehicle : [Vehicle!]!
+  appearedIn : [Film!]!
+  type : Species
+  fromPlanet : Planet
+
+  error : Boolean
+  panic : Boolean
+}
+
+type Planet {
+  id : ID!
+  climate : String!
+  diameter : Int
+  gravity : String!
+  name : String!
+  orbitalPeriod : String!
+  population : Int
+  rotationPeriod : String!
+  surfaceWater : String!
+  terrain : String!
+  homeTo : [Person!]!
+  appearedIn : [Film!]!
+  originOf : [Species!]!
+
+  error : Boolean
+  panic : Boolean
+}
+
+type Species {
+  id : ID!
+  averageHeight : Int!
+  averageLifespan : String!
+  classification : String!
+  designation : String!
+  name : String!
+  skinColor : String!
+  eyeColor : String!
+  hairColor : String!
+  language : String!
+  originatesFrom : Planet!
+  appearedIn : [Film!]!
+  includesPerson : [Person!]!
+
+  error : Boolean
+  panic : Boolean
+}
+
+type Starship {
+  id : ID!
+  cargoCapacity : Int,
+  class : String!
+  consumables : String!
+  costInCredits : Int!
+  crew : String!
+  hyperdriveRating : String!
+  length : Float!
+  manufacturer : String!
+  maxAtmospheringSpeed : String!
+  maximumMegalights : String
+  model : String!
+  name : String!
+  passengerCapacity : Int
+  appearedIn : [Film!]!
+  pilotedBy : [Person!]!
+
+  error : Boolean
+  panic : Boolean
+}
+
+type Vehicle {
+  id : ID!
+  cargoCapacity : Int,
+  consumables : String!
+  costInCredits : Int!
+  crew : String!
+  length : Float
+  manufacturer : String!
+  maxAtmospheringSpeed : String!
+  model : String!
+  name : String!
+  passengerCapacity : Int
+  appearedIn : [Film!]!
+  pilotedBy : [Person!]!
+
+  error : Boolean
+  panic : Boolean
+}
+
+input FilmInput {
+  director : String!
+  producer : String!
+  episodeId : Int!
+  openingCrawl : String!
+  planets : [PlanetInput!]!
+}
+
+input PlanetInput {
+  climate : String!
+  diameter : Int
+  gravity : String!
+  name : String!
+  orbitalPeriod : String!
+  population : Int
+  rotationPeriod : String!
+  surfaceWater : String!
+  terrain : String!
+}
+
+directive @access(
+  role: [String] = ["allowed role"]
+  depth: Int
+) on FIELD_DEFINITION

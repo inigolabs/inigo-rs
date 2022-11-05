@@ -1,0 +1,16 @@
+sandbox:
+  enabled: true
+supergraph:
+  introspection: true
+homepage:
+  enabled: false
+cors:
+  allow_any_origin: true
+  origins: []
+plugins:
+  inigo.middleware:
+    debug: true
+    jwt_header: "authorization"
+    ingest: "http://192.168.49.2:30001/query"
+    service: "http://192.168.49.2:30001/query"
+    token: "your-inigo-service-token"
