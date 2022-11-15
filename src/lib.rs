@@ -30,7 +30,6 @@ extern "C" {
     fn disposeMemory(ptr: *mut c_char);
     fn disposeHandle(handle: usize);
     fn ingest_query_data(handle_ptr: usize, req_handle: usize);
-    fn introspection_to_schema(input: *const c_char, output: &*mut c_char, output_len: &mut usize);
     fn check_lasterror() -> *const c_char;
     fn process_request(
         handle_ptr: usize,
@@ -219,20 +218,6 @@ impl Plugin for Middleware {
         )
         .unwrap();
 
-        let (out, out_len) = (CString::into_raw(Default::default()), &mut 0);
-
-        unsafe {
-            introspection_to_schema(
-                CString::new(introspection.to_string()).unwrap().into_raw(),
-                &out,
-                out_len,
-            )
-        };
-
-        let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
-
-        unsafe { disposeMemory(out) }
-
         let middleware = Middleware {
             jwt_header: init.config.jwt_header,
             handler: unsafe {
@@ -241,7 +226,7 @@ impl Plugin for Middleware {
                     ingest: str_to_c_char(&init.config.ingest),
                     service: str_to_c_char(&init.config.service),
                     token: str_to_c_char(&init.config.token),
-                    schema: str_to_c_char(String::from_utf8(res_out).unwrap().as_str()),
+                    schema: str_to_c_char(init.supergraph_sdl.as_str()),
                     introspection: str_to_c_char(&introspection.to_string()),
                 })
             },
