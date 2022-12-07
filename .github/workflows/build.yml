@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-18.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set ENV vars
+        run: |
+          TAG=$(git describe --tags --always `git rev-list --tags --max-count=1`)
+          echo "IMAGE_TAG"=$TAG >> $GITHUB_ENV
+          echo "IMAGE_NAME_ROUTER"=ghcr.io/inigolabs/inigo-rs/router >> $GITHUB_ENV
+
+      - name: Build and Push container image (router)
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME_ROUTER }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME_ROUTER }}:latest
