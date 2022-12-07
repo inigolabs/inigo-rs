@@ -3,10 +3,12 @@ use apollo_router::layers::ServiceBuilderExt;
 use apollo_router::plugin::{Plugin, PluginInit};
 use apollo_router::services::supergraph::{BoxService, Request, Response};
 use http::{HeaderMap, HeaderValue};
+use libloading::{Library, Symbol};
 use router_bridge::introspect;
 use router_bridge::planner::QueryPlannerConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::ffi::{CStr, CString};
 use std::ops::ControlFlow;
 use std::os::raw::c_char;
@@ -24,32 +26,107 @@ struct SidecarConfig {
     introspection: *const c_char,
 }
 
-#[link(name = "inigo", kind = "dylib")]
-extern "C" {
-    fn create(ptr: *const SidecarConfig) -> usize;
-    fn disposeMemory(ptr: *mut c_char);
-    fn disposeHandle(handle: usize);
-    fn ingest_query_data(handle_ptr: usize, req_handle: usize);
-    fn check_lasterror() -> *const c_char;
-    fn process_request(
-        handle_ptr: usize,
-        header: *const c_char,
-        header_len: usize,
-        input: *const c_char,
-        input_len: usize,
-        output: &*mut c_char,
-        output_len: &mut usize,
-        status_output: &*mut c_char,
-        status_output_len: &mut usize,
-    ) -> usize;
-    fn process_response(
-        handle_ptr: usize,
-        req_handle: usize,
-        input: *const c_char,
-        input_len: usize,
-        output: &*mut c_char,
-        output_len: &mut usize,
-    );
+#[macro_use]
+extern crate lazy_static;
+
+lazy_static! {
+    static ref INIGO_LIB_PATH: String = match env::var_os("INIGO_LIB_PATH") {
+        Some(val) => val.into_string().unwrap(),
+        None => String::from("./libinigo.so"),
+    };
+    static ref LIB: Library = unsafe { Library::new(format!("{}", INIGO_LIB_PATH.as_str())).unwrap() };
+}
+
+fn create(ptr: *const SidecarConfig) -> usize {
+    type Func = extern "C" fn(ptr: *const SidecarConfig) -> usize;
+
+    unsafe { LIB.get::<Symbol<Func>>(b"create").unwrap()(ptr) }
+}
+
+fn dispose_memory(ptr: *mut c_char) {
+    type Func = extern "C" fn(ptr: *mut c_char);
+    unsafe {
+        LIB.get::<Symbol<Func>>(b"disposeMemory").unwrap()(ptr);
+    }
+}
+
+fn dispose_handle(handle: usize) {
+    type Func = extern "C" fn(handle: usize);
+    unsafe {
+        LIB.get::<Symbol<Func>>(b"disposeHandle").unwrap()(handle);
+    }
+}
+
+fn ingest_query_data(handle_ptr: usize, req_handle: usize) {
+    type Func = extern "C" fn(handle_ptr: usize, req_handle: usize);
+    unsafe {
+        LIB.get::<Symbol<Func>>(b"ingest_query_data").unwrap()(handle_ptr, req_handle);
+    }
+}
+
+fn check_last_error() -> *const c_char {
+    type Func = extern "C" fn() -> *const c_char;
+    unsafe { LIB.get::<Symbol<Func>>(b"check_lasterror").unwrap()() }
+}
+
+fn process_request(
+    handle_ptr: usize,
+    header: *const c_char,
+    header_len: usize,
+    input: *const c_char,
+    input_len: usize,
+    output: &*mut c_char,
+    output_len: &mut usize,
+    status_output: &*mut c_char,
+    status_output_len: &mut usize,
+) -> usize {
+    unsafe {
+        type Func = extern "C" fn(
+            handle_ptr: usize,
+            header: *const c_char,
+            header_len: usize,
+            input: *const c_char,
+            input_len: usize,
+            output: &*mut c_char,
+            output_len: &mut usize,
+            status_output: &*mut c_char,
+            status_output_len: &mut usize,
+        ) -> usize;
+        LIB.get::<Symbol<Func>>(b"process_request").unwrap()(
+            handle_ptr,
+            header,
+            header_len,
+            input,
+            input_len,
+            output,
+            output_len,
+            status_output,
+            status_output_len,
+        )
+    }
+}
+
+fn process_response(
+    handle_ptr: usize,
+    req_handle: usize,
+    input: *const c_char,
+    input_len: usize,
+    output: &*mut c_char,
+    output_len: &mut usize,
+) {
+    unsafe {
+        type Func = extern "C" fn(
+            handle_ptr: usize,
+            req_handle: usize,
+            input: *const c_char,
+            input_len: usize,
+            output: &*mut c_char,
+            output_len: &mut usize,
+        );
+        LIB.get::<Symbol<Func>>(b"process_response").unwrap()(
+            handle_ptr, req_handle, input, input_len, output, output_len,
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -63,7 +140,7 @@ impl Inigo {
     fn new(handler: usize, jwt_header: String) -> Self {
         return Inigo {
             handler,
-            jwt_header: jwt_header,
+            jwt_header,
             processed: Default::default(),
         };
     }
@@ -84,7 +161,7 @@ impl Inigo {
     }
 
     fn ingest(&self) {
-        unsafe { ingest_query_data(self.handler, self.processed.lock().unwrap().clone()) }
+        ingest_query_data(self.handler, self.processed.lock().unwrap().clone())
     }
 
     fn process_request(&self, req: Request) -> (Request, StatusResult) {
@@ -102,26 +179,24 @@ impl Inigo {
             Inigo::get_jwt_header(req.supergraph_request.headers(), self.jwt_header.as_str());
 
         let mut processed = self.processed.lock().unwrap();
-        *processed = unsafe {
-            process_request(
-                self.handler,
-                header,
-                header_len,
-                CString::into_raw(CString::new(query).unwrap()),
-                query_len,
-                &out,
-                out_len,
-                &out_status,
-                status_out_len,
-            )
-        };
+        *processed = process_request(
+            self.handler,
+            header,
+            header_len,
+            CString::into_raw(CString::new(query).unwrap()),
+            query_len,
+            &out,
+            out_len,
+            &out_status,
+            status_out_len,
+        );
 
         let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
-        unsafe { disposeMemory(out) }
+        dispose_memory(out);
 
         let res_out_status =
             unsafe { CStr::from_ptr(out_status).to_bytes()[..*status_out_len].to_owned() };
-        unsafe { disposeMemory(out_status) }
+        dispose_memory(out_status);
 
         let mut result: StatusResult = StatusResult {
             status: Option::None,
@@ -153,22 +228,20 @@ impl Inigo {
 
         let (out, out_len) = (CString::into_raw(Default::default()), &mut 0);
 
-        unsafe {
-            process_response(
-                self.handler,
-                self.processed.lock().unwrap().clone(),
-                _input,
-                _input_len,
-                &out,
-                out_len,
-            )
-        };
+        process_response(
+            self.handler,
+            self.processed.lock().unwrap().clone(),
+            _input,
+            _input_len,
+            &out,
+            out_len,
+        );
 
         let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
 
-        unsafe { disposeMemory(out) }
+        dispose_memory(out);
 
-        unsafe { disposeHandle(self.processed.lock().unwrap().clone()) }
+        dispose_handle(self.processed.lock().unwrap().clone());
 
         let result: graphql::Response =
             serde_json::from_str(String::from_utf8(res_out).unwrap().as_str()).unwrap();
@@ -220,19 +293,17 @@ impl Plugin for Middleware {
 
         let middleware = Middleware {
             jwt_header: init.config.jwt_header,
-            handler: unsafe {
-                create(&SidecarConfig {
-                    debug: init.config.debug,
-                    ingest: str_to_c_char(&init.config.ingest),
-                    service: str_to_c_char(&init.config.service),
-                    token: str_to_c_char(&init.config.token),
-                    schema: str_to_c_char(init.supergraph_sdl.as_str()),
-                    introspection: str_to_c_char(&introspection.to_string()),
-                })
-            },
+            handler: create(&SidecarConfig {
+                debug: init.config.debug,
+                ingest: str_to_c_char(&init.config.ingest),
+                service: str_to_c_char(&init.config.service),
+                token: str_to_c_char(&init.config.token),
+                schema: str_to_c_char(init.supergraph_sdl.as_str()),
+                introspection: str_to_c_char(&introspection.to_string()),
+            }),
         };
 
-        let err = unsafe { CStr::from_ptr(check_lasterror()) };
+        let err = unsafe { CStr::from_ptr(check_last_error()) };
 
         if !err.to_str().unwrap().is_empty() {
             Err(err.to_str().unwrap())?;
@@ -267,7 +338,7 @@ impl Plugin for Middleware {
                 {
                     i.ingest();
 
-                    unsafe { disposeHandle(i.processed.lock().unwrap().clone()) }
+                    dispose_handle(i.processed.lock().unwrap().clone());
 
                     return Ok(ControlFlow::Break(
                         Response::builder()
@@ -284,7 +355,7 @@ impl Plugin for Middleware {
                 if result.status.unwrap() == "BLOCKED" {
                     i.ingest();
 
-                    unsafe { disposeHandle(i.processed.lock().unwrap().clone()) }
+                    dispose_handle(i.processed.lock().unwrap().clone());
 
                     return Ok(ControlFlow::Break(
                         Response::builder()
