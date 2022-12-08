@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches: [ master ]
-  pull_request:
-    branches: [ master ]
 
 jobs:
   build:
@@ -19,6 +17,13 @@ jobs:
           TAG=$(git describe --tags --always `git rev-list --tags --max-count=1`)
           echo "IMAGE_TAG"=$TAG >> $GITHUB_ENV
           echo "IMAGE_NAME_ROUTER"=ghcr.io/inigolabs/inigo-rs/router >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GIT_TOKEN }}
 
       - name: Build and Push container image (router)
         uses: docker/build-push-action@v2
