@@ -257,9 +257,13 @@ pub struct Middleware {
     enabled: bool,
 }
 
+fn default_as_true() -> bool {
+    true
+}
+
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct Conf {
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     enabled: bool,
     #[serde(default = "default_jwt_header")]
     jwt_header: String,
