@@ -1,19 +1,22 @@
+#[macro_use]
+extern crate lazy_static;
+
+use std::{ptr, str};
+use std::env;
+use std::ffi::{CStr, CString};
+use std::ops::ControlFlow;
+use std::os::raw::c_char;
+use std::ptr::null;
+use std::sync::{Arc, Mutex};
+
 use apollo_router::graphql;
 use apollo_router::layers::ServiceBuilderExt;
 use apollo_router::plugin::{Plugin, PluginInit};
 use apollo_router::services::supergraph::{BoxService, Request, Response};
 use http::{HeaderMap, HeaderValue};
 use libloading::{Library, Symbol};
-use router_bridge::introspect;
-use router_bridge::planner::QueryPlannerConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::ffi::{CStr, CString};
-use std::ops::ControlFlow;
-use std::os::raw::c_char;
-use std::sync::{Arc, Mutex};
-use std::{ptr, str};
 use tower::{BoxError, ServiceBuilder, ServiceExt};
 
 #[repr(C)]
@@ -25,9 +28,6 @@ struct SidecarConfig {
     schema: *const c_char,
     introspection: *const c_char,
 }
-
-#[macro_use]
-extern crate lazy_static;
 
 lazy_static! {
     static ref INIGO_LIB_PATH: String = match env::var_os("INIGO_LIB_PATH") {
@@ -254,16 +254,15 @@ impl Inigo {
 pub struct Middleware {
     jwt_header: String,
     handler: usize,
+    enabled: bool,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct Conf {
     #[serde(default)]
-    debug: bool,
+    enabled: bool,
     #[serde(default = "default_jwt_header")]
     jwt_header: String,
-    #[serde(default)]
-    ingest: String,
     #[serde(default)]
     service: String,
     token: String,
@@ -278,29 +277,21 @@ impl Plugin for Middleware {
     type Config = Conf;
 
     async fn new(init: PluginInit<Self::Config>) -> Result<Self, BoxError> {
-        let introspection = serde_json::to_value(
-            introspect::batch_introspect(
-                init.supergraph_sdl.as_str(),
-                vec![DEFAULT_INTROSPECTION_QUERY.to_string()],
-                QueryPlannerConfig::default(),
-            )
-            .unwrap()
-            .unwrap()
-            .into_iter()
-            .nth(0),
-        )
-        .unwrap();
+        if !init.config.enabled {
+            return Ok(Middleware { jwt_header: String::new(), handler: 0, enabled: false });
+        }
 
         let middleware = Middleware {
             jwt_header: init.config.jwt_header,
             handler: create(&SidecarConfig {
-                debug: init.config.debug,
-                ingest: str_to_c_char(&init.config.ingest),
+                debug: false,
+                ingest: null(),
                 service: str_to_c_char(&init.config.service),
                 token: str_to_c_char(&init.config.token),
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
-                introspection: str_to_c_char(&introspection.to_string()),
+                introspection: null(),
             }),
+            enabled: true,
         };
 
         let err = unsafe { CStr::from_ptr(check_last_error()) };
@@ -313,6 +304,10 @@ impl Plugin for Middleware {
     }
 
     fn supergraph_service(&self, service: BoxService) -> BoxService {
+        if !self.enabled {
+            return service;
+        }
+
         let inigo = Inigo::new(self.handler.clone(), self.jwt_header.to_owned());
 
         let process_req_fn = |i: Inigo| {
@@ -328,13 +323,13 @@ impl Plugin for Middleware {
                 // is an introspection
                 if !response.data.is_none()
                     && response
-                        .data
-                        .as_ref()
-                        .unwrap()
-                        .as_object()
-                        .as_ref()
-                        .unwrap()
-                        .contains_key("__schema")
+                    .data
+                    .as_ref()
+                    .unwrap()
+                    .as_object()
+                    .as_ref()
+                    .unwrap()
+                    .contains_key("__schema")
                 {
                     i.ingest();
 
@@ -418,106 +413,3 @@ fn str_to_c_char(val: &str) -> *const c_char {
 
     return res;
 }
-
-static DEFAULT_INTROSPECTION_QUERY: &str = r#"
-query IntrospectionQuery {
-    __schema {
-        queryType {
-            name
-        }
-        mutationType {
-            name
-        }
-        subscriptionType {
-            name
-        }
-        types {
-            ...FullType
-        }
-        directives {
-            name
-            description
-            locations
-            args {
-                ...InputValue
-            }
-        }
-    }
-}
-
-fragment FullType on __Type {
-    kind
-    name
-    description
-
-    fields(includeDeprecated: true) {
-        name
-        description
-        args {
-            ...InputValue
-        }
-        type {
-            ...TypeRef
-        }
-        isDeprecated
-        deprecationReason
-    }
-    inputFields {
-        ...InputValue
-    }
-    interfaces {
-        ...TypeRef
-    }
-    enumValues(includeDeprecated: true) {
-        name
-        description
-        isDeprecated
-        deprecationReason
-    }
-    possibleTypes {
-        ...TypeRef
-    }
-}
-
-fragment InputValue on __InputValue {
-    name
-    description
-    type {
-        ...TypeRef
-    }
-    defaultValue
-}
-
-fragment TypeRef on __Type {
-    kind
-    name
-    ofType {
-        kind
-        name
-        ofType {
-            kind
-            name
-            ofType {
-                kind
-                name
-                    ofType {
-                    kind
-                    name
-                    ofType {
-                        kind
-                        name
-                            ofType {
-                            kind
-                            name
-                            ofType {
-                                kind
-                                name
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-"#;
