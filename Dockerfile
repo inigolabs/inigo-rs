@@ -1,6 +1,6 @@
 FROM --platform=linux/amd64 rust:1.65-slim as rust-builder
 
-RUN apt-get update && apt-get install -y curl
+RUN apt-get update && apt-get install -y curl && apt-get install -y protobuf-compiler
 # Copy source files
 COPY . /router
 WORKDIR /router/examples/middleware
