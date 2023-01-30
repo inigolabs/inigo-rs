@@ -70,13 +70,6 @@ fn dispose_handle(handle: usize) {
     }
 }
 
-fn ingest_query_data(handle_ptr: usize, req_handle: usize) {
-    type Func = extern "C" fn(handle_ptr: usize, req_handle: usize);
-    unsafe {
-        LIB.get::<Symbol<Func>>(b"ingest_query_data").unwrap()(handle_ptr, req_handle);
-    }
-}
-
 fn check_last_error() -> *const c_char {
     type Func = extern "C" fn() -> *const c_char;
     unsafe { LIB.get::<Symbol<Func>>(b"check_lasterror").unwrap()() }
@@ -171,10 +164,6 @@ impl Inigo {
         let jwt_header_len = jwt_header.len();
 
         return (CString::new(jwt_header).unwrap().into_raw(), jwt_header_len);
-    }
-
-    fn ingest(&self) {
-        ingest_query_data(self.handler, self.processed.lock().unwrap().clone())
     }
 
     fn process_request(&self, req: Request) -> (Request, StatusResult) {
@@ -348,8 +337,6 @@ impl Plugin for Middleware {
                     .unwrap()
                     .contains_key("__schema")
                 {
-                    i.ingest();
-
                     dispose_handle(i.processed.lock().unwrap().clone());
 
                     return Ok(ControlFlow::Break(
@@ -365,8 +352,6 @@ impl Plugin for Middleware {
 
                 // If request is blocked
                 if result.status.unwrap() == "BLOCKED" {
-                    i.ingest();
-
                     dispose_handle(i.processed.lock().unwrap().clone());
 
                     return Ok(ControlFlow::Break(
