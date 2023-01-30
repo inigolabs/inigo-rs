@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 use std::{ptr, str};
+use std::collections::HashMap;
 use std::env;
 use std::ffi::{CStr, CString};
 use std::ops::ControlFlow;
@@ -13,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use apollo_router::graphql;
 use apollo_router::layers::ServiceBuilderExt;
 use apollo_router::plugin::{Plugin, PluginInit};
+use apollo_router::services::subgraph;
 use apollo_router::services::supergraph::{BoxService, Request, Response};
 use http::{HeaderMap, HeaderValue};
 use libloading::{Library, Symbol};
@@ -29,6 +31,7 @@ struct SidecarConfig {
     token: *const c_char,
     schema: *const c_char,
     introspection: *const c_char,
+    egress_url: *const c_char,
 }
 
 const LIB_PATH: &str = "INIGO_LIB_PATH";
@@ -135,6 +138,25 @@ fn process_response(
     }
 }
 
+fn gateway_info(
+    handle_ptr: usize,
+    output: &*mut c_char,
+    output_len: &mut usize,
+) -> usize {
+    unsafe {
+        type Func = extern "C" fn(
+            handle_ptr: usize,
+            output: &*mut c_char,
+            output_len: &mut usize,
+        ) -> usize;
+        LIB.get::<Symbol<Func>>(b"gateway_info").unwrap()(
+            handle_ptr,
+            output,
+            output_len,
+        )
+    }
+}
+
 #[derive(Clone)]
 struct Inigo {
     jwt_header: String,
@@ -166,7 +188,7 @@ impl Inigo {
         return (CString::new(jwt_header).unwrap().into_raw(), jwt_header_len);
     }
 
-    fn process_request(&self, req: Request) -> (Request, StatusResult) {
+    fn process_request(&self, req: &graphql::Request, headers: &HeaderMap<HeaderValue>) -> StatusResult {
         let (out, out_status, out_len, status_out_len) = (
             CString::into_raw(Default::default()),
             CString::into_raw(Default::default()),
@@ -174,11 +196,10 @@ impl Inigo {
             &mut 0,
         );
 
-        let query = req.supergraph_request.body().query.clone().unwrap();
+        let query = req.query.clone().unwrap();
         let query_len = query.len();
 
-        let (header, header_len) =
-            Inigo::get_jwt_header(req.supergraph_request.headers(), self.jwt_header.as_str());
+        let (header, header_len) = Inigo::get_jwt_header(headers, self.jwt_header.as_str());
 
         let mut processed = self.processed.lock().unwrap();
         *processed = process_request(
@@ -219,10 +240,10 @@ impl Inigo {
             result.response = status_result.response;
         }
 
-        return (req, result);
+        return result;
     }
 
-    fn process_response(&self, resp: graphql::Response) -> graphql::Response {
+    fn process_response(&self, resp: &graphql::Response) -> graphql::Response {
         let v = serde_json::to_value(resp).unwrap();
 
         let _input = CString::into_raw(CString::new(v.to_string()).unwrap());
@@ -257,6 +278,7 @@ pub struct Middleware {
     jwt_header: String,
     handler: usize,
     enabled: bool,
+    sidecars: HashMap<String, usize>,
 }
 
 fn default_as_true() -> bool {
@@ -284,10 +306,15 @@ impl Plugin for Middleware {
 
     async fn new(init: PluginInit<Self::Config>) -> Result<Self, BoxError> {
         if !init.config.enabled {
-            return Ok(Middleware { jwt_header: String::new(), handler: 0, enabled: false });
+            return Ok(Middleware {
+                jwt_header: String::new(),
+                handler: 0,
+                enabled: false,
+                sidecars: Default::default(),
+            });
         }
 
-        let middleware = Middleware {
+        let mut middleware = Middleware {
             jwt_header: init.config.jwt_header,
             handler: create(&SidecarConfig {
                 debug: false,
@@ -296,8 +323,10 @@ impl Plugin for Middleware {
                 token: str_to_c_char(&init.config.token),
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
                 introspection: null(),
+                egress_url: null(),
             }),
             enabled: true,
+            sidecars: HashMap::new(),
         };
 
         let err = unsafe { CStr::from_ptr(check_last_error()) };
@@ -306,7 +335,113 @@ impl Plugin for Middleware {
             Err(err.to_str().unwrap())?;
         }
 
+        let (out, out_len) = (CString::into_raw(Default::default()), &mut 0, );
+
+        gateway_info(middleware.handler, &out, out_len);
+
+        let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
+
+        dispose_memory(out);
+
+        let mut result: Vec<GatewayInfo> = vec![];
+
+        if *out_len > 0 {
+            let info = String::from_utf8(res_out).unwrap().as_str().to_string();
+            result = match serde_json::from_str(&info) {
+                Ok(val) => val,
+                Err(err) => {
+                    let resp: graphql::Response = serde_json::from_str(&info).unwrap();
+
+                    for error in resp.errors.iter() {
+                        return Err(format!("{}", error))?;
+                    }
+
+                    return Err(BoxError::try_from(err).unwrap());
+                }
+            };
+        }
+
+        for info in result.iter() {
+            middleware.sidecars.insert(info.name.to_owned(), create(&SidecarConfig {
+                debug: false,
+                egress_url: str_to_c_char(&info.url.as_str()),
+                service: str_to_c_char(&init.config.service),
+                token: str_to_c_char(&info.token.as_str()),
+                schema: null(),
+                introspection: null(),
+                ingest: null(),
+            }));
+
+            let err = unsafe { CStr::from_ptr(check_last_error()) };
+
+            if !err.to_str().unwrap().is_empty() {
+                Err(err.to_str().unwrap())?;
+            }
+        }
+
         Ok(middleware)
+    }
+
+    fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
+        if !self.enabled {
+            return service;
+        }
+
+        if !self.sidecars.contains_key(_name) {
+            return service;
+        }
+
+        let inigo = Inigo::new(self.sidecars.get(_name).unwrap().clone(), self.jwt_header.to_owned());
+
+        let process_req_fn = |i: Inigo| {
+            move |mut req: subgraph::Request| {
+                let result = i.process_request(req.subgraph_request.body(), req.subgraph_request.headers());
+
+                if result.response.is_none() {
+                    return Ok(ControlFlow::Continue(req));
+                }
+
+                let response = result.response.unwrap();
+
+                // If request is blocked
+                if result.status.unwrap() == "BLOCKED" {
+                    dispose_handle(i.processed.lock().unwrap().clone());
+
+                    return Ok(ControlFlow::Break(
+                        subgraph::Response::builder()
+                            .errors(response.errors)
+                            .extensions(response.extensions)
+                            .context(req.context)
+                            .build(),
+                    ));
+                }
+
+                // If request query has been mutated
+                if response.errors.len() > 0 {
+                    req.subgraph_request.body_mut().query = result.request.unwrap().query;
+                }
+
+                Ok(ControlFlow::Continue(req))
+            }
+        };
+
+        let process_resp_fn = |i: Inigo| {
+            move |mut resp: subgraph::Response| {
+                let res = i.process_response(&resp.response.body());
+
+                resp.response.body_mut().data = res.data;
+                resp.response.body_mut().errors = res.errors;
+                resp.response.body_mut().extensions = res.extensions;
+
+                return resp;
+            }
+        };
+
+        ServiceBuilder::new()
+            .checkpoint(process_req_fn(inigo.clone()))
+            .map_response(process_resp_fn(inigo.clone()))
+            .service(service)
+            .boxed()
     }
 
     fn supergraph_service(&self, service: BoxService) -> BoxService {
@@ -317,8 +452,8 @@ impl Plugin for Middleware {
         let inigo = Inigo::new(self.handler.clone(), self.jwt_header.to_owned());
 
         let process_req_fn = |i: Inigo| {
-            move |req: Request| {
-                let (mut req, result) = i.process_request(req);
+            move |mut req: Request| {
+                let result = i.process_request(&req.supergraph_request.body(), req.supergraph_request.headers());
 
                 if result.response.is_none() {
                     return Ok(ControlFlow::Continue(req));
@@ -375,8 +510,14 @@ impl Plugin for Middleware {
 
         let process_resp_fn = |i: Inigo| {
             move |resp: Response| {
-                return resp.map_stream(move |gresp: graphql::Response| {
-                    return i.process_response(gresp);
+                return resp.map_stream(move |mut resp: graphql::Response| {
+                    let res = i.process_response(&resp);
+
+                    resp.data = res.data;
+                    resp.errors = res.errors;
+                    resp.extensions = res.extensions;
+
+                    return resp;
                 });
             }
         };
@@ -392,6 +533,16 @@ impl Plugin for Middleware {
 #[derive(Serialize)]
 struct JwtHeader<'a> {
     jwt: &'a str,
+}
+
+#[derive(Deserialize, Clone)]
+struct GatewayInfo {
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    name: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    url: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    token: String,
 }
 
 #[derive(Deserialize, Clone)]
