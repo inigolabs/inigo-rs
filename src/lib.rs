@@ -6,6 +6,7 @@ use std::env;
 use std::ffi::{CStr, CString};
 use std::ops::ControlFlow;
 use std::os::raw::c_char;
+use std::process;
 use std::ptr::null;
 use std::sync::{Arc, Mutex};
 
@@ -18,6 +19,7 @@ use libloading::{Library, Symbol};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tower::{BoxError, ServiceBuilder, ServiceExt};
+use tracing::error;
 
 #[repr(C)]
 struct SidecarConfig {
@@ -29,12 +31,23 @@ struct SidecarConfig {
     introspection: *const c_char,
 }
 
+const LIB_PATH: &str = "INIGO_LIB_PATH";
+
 lazy_static! {
-    static ref INIGO_LIB_PATH: String = match env::var_os("INIGO_LIB_PATH") {
+    static ref INIGO_LIB_PATH: String = match env::var_os(LIB_PATH) {
         Some(val) => val.into_string().unwrap(),
         None => String::from("./libinigo.so"),
     };
-    static ref LIB: Library = unsafe { Library::new(format!("{}", INIGO_LIB_PATH.as_str())).unwrap() };
+
+    static ref LIB: Library = unsafe {
+        return match Library::new(format!("{}", INIGO_LIB_PATH.as_str())) {
+            Ok(val)=>val,
+            Err(_) =>{
+                error!("The router could not find the Inigo library, please make sure you specified {}=/path/to/libinigo.so",LIB_PATH);
+                process::exit(1);
+            }
+        }
+    };
 }
 
 fn create(ptr: *const SidecarConfig) -> usize {
