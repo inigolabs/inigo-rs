@@ -4,6 +4,13 @@ supergraph:
   introspection: true
 homepage:
   enabled: false
+include_subgraph_errors:
+  all: true
+headers:
+  all:
+    request:
+      - propagate:
+          matching: .*
 cors:
   allow_any_origin: true
   origins: []
