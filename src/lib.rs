@@ -39,7 +39,16 @@ const LIB_PATH: &str = "INIGO_LIB_PATH";
 lazy_static! {
     static ref INIGO_LIB_PATH: String = match env::var_os(LIB_PATH) {
         Some(val) => val.into_string().unwrap(),
-        None => String::from("./libinigo.so"),
+        None => {
+            let ext = match sys_info::os_type().unwrap().as_str() {
+                "Linux" => { "so" }
+                "Darwin" => { "dylib" }
+                "Windows" => { "dll" }
+                _ => { "so" }
+            };
+
+            return env::current_exe().unwrap().parent().unwrap().join("libinigo.".to_owned() + ext).to_str().unwrap().to_owned();
+        }
     };
 
     static ref LIB: Library = unsafe {
