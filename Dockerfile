@@ -1,10 +1,11 @@
 FROM rust:1.65-slim as rust-builder
 
-RUN apt-get update && apt-get install -y curl pkg-config libssl-dev protobuf-compiler
+RUN apt-get update && apt-get install -y curl git pkg-config libssl-dev protobuf-compiler
 # Copy source files
 COPY . /router
 WORKDIR /router/examples/middleware
 
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup component add rustfmt
 RUN cargo build --release
 
