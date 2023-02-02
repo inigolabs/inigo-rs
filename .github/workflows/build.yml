@@ -8,7 +8,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-18.04
-    timeout-minutes: 150
+    timeout-minutes: 200
     steps:
       - uses: actions/checkout@v3
 
