@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::{ptr, str};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::{CStr, CString};
@@ -9,17 +8,17 @@ use std::ops::ControlFlow;
 use std::os::raw::c_char;
 use std::process;
 use std::ptr::null;
+use std::str;
 use std::sync::{Arc, Mutex};
 
 use apollo_router::graphql;
 use apollo_router::layers::ServiceBuilderExt;
 use apollo_router::plugin::{Plugin, PluginInit};
-use apollo_router::services::subgraph;
-use apollo_router::services::supergraph::{BoxService, Request, Response};
+use apollo_router::services::{subgraph, supergraph};
 use http::{HeaderMap, HeaderValue};
 use libloading::{Library, Symbol};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tower::{BoxError, ServiceBuilder, ServiceExt};
 use tracing::error;
 
@@ -101,10 +100,10 @@ fn process_request(
     header_len: usize,
     input: *const c_char,
     input_len: usize,
-    output: &*mut c_char,
-    output_len: &mut usize,
-    status_output: &*mut c_char,
-    status_output_len: &mut usize,
+    resp: &*mut c_char,
+    resp_len: &mut usize,
+    req: &*mut c_char,
+    req_len: &mut usize,
 ) -> usize {
     unsafe {
         type Func = extern "C" fn(
@@ -113,10 +112,10 @@ fn process_request(
             header_len: usize,
             input: *const c_char,
             input_len: usize,
-            output: &*mut c_char,
-            output_len: &mut usize,
-            status_output: &*mut c_char,
-            status_output_len: &mut usize,
+            resp: &*mut c_char,
+            resp_len: &mut usize,
+            req: &*mut c_char,
+            req_len: &mut usize,
         ) -> usize;
         LIB.get::<Symbol<Func>>(b"process_request").unwrap()(
             handle_ptr,
@@ -124,10 +123,10 @@ fn process_request(
             header_len,
             input,
             input_len,
-            output,
-            output_len,
-            status_output,
-            status_output_len,
+            resp,
+            resp_len,
+            req,
+            req_len,
         )
     }
 }
@@ -186,92 +185,79 @@ fn gateway_info(
 
 #[derive(Clone)]
 struct Inigo {
-    jwt_header: String,
     handler: usize,
     processed: Arc<Mutex<usize>>,
 }
 
 impl Inigo {
-    fn new(handler: usize, jwt_header: String) -> Self {
+    fn new(handler: usize) -> Self {
         return Inigo {
             handler,
-            jwt_header,
             processed: Default::default(),
         };
     }
 
-    fn get_jwt_header(headers: &HeaderMap<HeaderValue>, key: &str) -> (*const c_char, usize) {
-        let header = headers.get(key);
-        if header.is_none() {
-            return (ptr::null(), 0);
+    fn get_headers(headers: &HeaderMap<HeaderValue>) -> (*const c_char, usize) {
+        let mut header_hashmap = HashMap::new();
+        for (k, v) in headers {
+            let k = k.as_str().to_owned();
+            let v = String::from_utf8_lossy(v.as_bytes()).into_owned();
+            header_hashmap.entry(k).or_insert_with(Vec::new).push(v)
         }
 
-        let token = header.unwrap().to_str().unwrap();
+        let h = serde_json::to_string(&header_hashmap).unwrap();
 
-        let jwt_header = serde_json::to_string(&JwtHeader { jwt: token }).unwrap();
+        let h_len = h.len();
 
-        let jwt_header_len = jwt_header.len();
-
-        return (CString::new(jwt_header).unwrap().into_raw(), jwt_header_len);
+        return (CString::new(h).unwrap().into_raw(), h_len);
     }
 
-    fn process_request(&self, req: &graphql::Request, headers: &HeaderMap<HeaderValue>) -> StatusResult {
-        let (out, out_status, out_len, status_out_len) = (
-            CString::into_raw(Default::default()),
+    fn process_request(&self, request: &mut graphql::Request, headers: &HeaderMap<HeaderValue>) -> Option<graphql::Response> {
+        let (req, req_len, resp, resp_len) = (
             CString::into_raw(Default::default()),
             &mut 0,
+            CString::into_raw(Default::default()),
             &mut 0,
         );
 
-        let query = req.query.clone().unwrap();
-        let query_len = query.len();
+        let req_src: String = serde_json::to_string(&request).unwrap();
 
-        let (header, header_len) = Inigo::get_jwt_header(headers, self.jwt_header.as_str());
+        let (header, header_len) = Inigo::get_headers(headers);
 
         let mut processed = self.processed.lock().unwrap();
         *processed = process_request(
             self.handler,
             header,
             header_len,
-            CString::into_raw(CString::new(query).unwrap()),
-            query_len,
-            &out,
-            out_len,
-            &out_status,
-            status_out_len,
+            CString::into_raw(CString::new(req_src.as_str()).unwrap()),
+            req_src.len(),
+            &resp,
+            resp_len,
+            &req,
+            req_len,
         );
 
-        let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
-        dispose_memory(out);
+        let res_resp = unsafe { CStr::from_ptr(resp).to_bytes()[..*resp_len].to_owned() };
+        dispose_memory(resp);
 
-        let res_out_status =
-            unsafe { CStr::from_ptr(out_status).to_bytes()[..*status_out_len].to_owned() };
-        dispose_memory(out_status);
+        let res_req =
+            unsafe { CStr::from_ptr(req).to_bytes()[..*req_len].to_owned() };
+        dispose_memory(req);
 
-        let mut result: StatusResult = StatusResult {
-            status: Option::None,
-            response: Option::None,
-            request: Option::None,
-        };
-
-        if *out_len > 0 {
-            result = serde_json::from_str(String::from_utf8(res_out).unwrap().as_str()).unwrap();
+        if *resp_len > 0 {
+            return serde_json::from_slice(res_resp.as_slice()).unwrap();
         }
 
-        if *status_out_len > 0 {
-            let status_result: StatusResult =
-                serde_json::from_str(String::from_utf8(res_out_status.clone()).unwrap().as_str())
-                    .unwrap();
-
-            result.status = status_result.status;
-            result.response = status_result.response;
+        if *req_len > 0 {
+            update_request(request, serde_json::from_slice(res_req.as_slice()).unwrap());
         }
 
-        return result;
+
+        return None;
     }
 
-    fn process_response(&self, resp: &graphql::Response) -> graphql::Response {
-        let v = serde_json::to_value(resp).unwrap();
+    fn process_response(&self, resp: &mut graphql::Response) {
+        let v = serde_json::to_value(&resp).unwrap();
 
         let _input = CString::into_raw(CString::new(v.to_string()).unwrap());
         let _input_len = v.to_string().len();
@@ -296,13 +282,14 @@ impl Inigo {
         let result: graphql::Response =
             serde_json::from_str(String::from_utf8(res_out).unwrap().as_str()).unwrap();
 
-        return result;
+        resp.data = result.data;
+        resp.errors = result.errors;
+        resp.extensions = result.extensions;
     }
 }
 
 #[derive(Debug)]
 pub struct Middleware {
-    jwt_header: String,
     handler: usize,
     enabled: bool,
     sidecars: HashMap<String, usize>,
@@ -311,7 +298,6 @@ pub struct Middleware {
 impl Clone for Middleware {
     fn clone(&self) -> Middleware {
         Middleware {
-            jwt_header: self.jwt_header.to_owned(),
             handler: self.handler,
             enabled: self.enabled,
             sidecars: self.sidecars.clone(),
@@ -328,15 +314,9 @@ fn default_as_true() -> bool {
 pub struct Conf {
     #[serde(default = "default_as_true")]
     enabled: bool,
-    #[serde(default = "default_jwt_header")]
-    jwt_header: String,
     #[serde(default)]
     service: String,
     token: String,
-}
-
-fn default_jwt_header() -> String {
-    "authorization".to_string()
 }
 
 #[async_trait::async_trait]
@@ -346,7 +326,6 @@ impl Plugin for Middleware {
     async fn new(init: PluginInit<Self::Config>) -> Result<Self, BoxError> {
         if !init.config.enabled {
             return Ok(Middleware {
-                jwt_header: String::new(),
                 handler: 0,
                 enabled: false,
                 sidecars: Default::default(),
@@ -361,7 +340,6 @@ impl Plugin for Middleware {
         }
 
         let mut middleware = Middleware {
-            jwt_header: init.config.jwt_header,
             handler: create(&SidecarConfig {
                 debug: false,
                 ingest: null(),
@@ -432,6 +410,7 @@ impl Plugin for Middleware {
         Ok(middleware)
     }
 
+
     fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
         if !self.enabled {
             return service;
@@ -441,48 +420,35 @@ impl Plugin for Middleware {
             return service;
         }
 
-        let inigo = Inigo::new(self.sidecars.get(_name).unwrap().clone(), self.jwt_header.to_owned());
+        let inigo = Inigo::new(self.sidecars.get(_name).unwrap().clone());
 
         let process_req_fn = |i: Inigo| {
             move |mut req: subgraph::Request| {
-                let result = i.process_request(req.subgraph_request.body(), req.subgraph_request.headers());
+                let headers = &req.subgraph_request.headers().clone();
+                let resp = i.process_request(req.subgraph_request.body_mut(), headers);
 
-                if result.response.is_none() {
+                if resp.is_none() {
                     return Ok(ControlFlow::Continue(req));
                 }
 
-                let response = result.response.unwrap();
+                let response = resp.unwrap();
 
-                // If request is blocked
-                if result.status.unwrap() == "BLOCKED" {
-                    dispose_handle(i.processed.lock().unwrap().clone());
+                dispose_handle(i.processed.lock().unwrap().clone());
 
-                    return Ok(ControlFlow::Break(
-                        subgraph::Response::builder()
-                            .errors(response.errors)
-                            .extensions(response.extensions)
-                            .context(req.context)
-                            .build(),
-                    ));
-                }
-
-                // If request query has been mutated
-                if response.errors.len() > 0 {
-                    req.subgraph_request.body_mut().query = result.request.unwrap().query;
-                }
-
-                Ok(ControlFlow::Continue(req))
+                return Ok(ControlFlow::Break(
+                    subgraph::Response::builder()
+                        .data(response.data.unwrap_or_default())
+                        .errors(response.errors)
+                        .extensions(response.extensions)
+                        .context(req.context)
+                        .build(),
+                ));
             }
         };
 
         let process_resp_fn = |i: Inigo| {
             move |mut resp: subgraph::Response| {
-                let res = i.process_response(&resp.response.body());
-
-                resp.response.body_mut().data = res.data;
-                resp.response.body_mut().errors = res.errors;
-                resp.response.body_mut().extensions = res.extensions;
-
+                i.process_response(resp.response.body_mut());
                 return resp;
             }
         };
@@ -494,79 +460,42 @@ impl Plugin for Middleware {
             .boxed()
     }
 
-    fn supergraph_service(&self, service: BoxService) -> BoxService {
+    fn supergraph_service(&self, service: supergraph::BoxService) -> supergraph::BoxService {
         if !self.enabled {
             return service;
         }
 
-        let inigo = Inigo::new(self.handler.clone(), self.jwt_header.to_owned());
+        let inigo = Inigo::new(self.handler.clone());
 
         let process_req_fn = |i: Inigo| {
-            move |mut req: Request| {
-                let result = i.process_request(&req.supergraph_request.body(), req.supergraph_request.headers());
+            move |mut req: supergraph::Request| {
+                let headers = &req.supergraph_request.headers().clone();
+                let resp = i.process_request(req.supergraph_request.body_mut(), headers);
 
-                if result.response.is_none() {
+                if resp.is_none() {
                     return Ok(ControlFlow::Continue(req));
                 }
 
-                let response = result.response.unwrap();
+                let response = resp.unwrap();
 
-                // is an introspection
-                if !response.data.is_none()
-                    && response
-                    .data
-                    .as_ref()
-                    .unwrap()
-                    .as_object()
-                    .as_ref()
-                    .unwrap()
-                    .contains_key("__schema")
-                {
-                    dispose_handle(i.processed.lock().unwrap().clone());
+                dispose_handle(i.processed.lock().unwrap().clone());
 
-                    return Ok(ControlFlow::Break(
-                        Response::builder()
-                            .data(response.data.unwrap())
-                            .errors(response.errors)
-                            .extensions(response.extensions)
-                            .context(req.context)
-                            .build()
-                            .unwrap(),
-                    ));
-                }
-
-                // If request is blocked
-                if result.status.unwrap() == "BLOCKED" {
-                    dispose_handle(i.processed.lock().unwrap().clone());
-
-                    return Ok(ControlFlow::Break(
-                        Response::builder()
-                            .errors(response.errors)
-                            .extensions(response.extensions)
-                            .context(req.context)
-                            .build()
-                            .unwrap(),
-                    ));
-                }
-
-                // If request query has been mutated
-                if response.errors.len() > 0 {
-                    req.supergraph_request.body_mut().query = result.request.unwrap().query;
-                }
-
-                Ok(ControlFlow::Continue(req))
+                return Ok(ControlFlow::Break(
+                    supergraph::Response::builder()
+                        .data(response.data.unwrap_or_default())
+                        .errors(response.errors)
+                        .extensions(response.extensions)
+                        .context(req.context)
+                        .build()
+                        .unwrap(),
+                ));
             }
         };
 
         let process_resp_fn = |i: Inigo| {
-            move |resp: Response| {
+            move |resp: supergraph::Response| {
                 return resp.map_stream(move |mut resp: graphql::Response| {
-                    let res = i.process_response(&resp);
-
-                    resp.data = res.data;
-                    resp.errors = res.errors;
-                    resp.extensions = res.extensions;
-
+                    i.process_response(&mut resp);
                     return resp;
                 });
             }
@@ -580,9 +509,10 @@ impl Plugin for Middleware {
     }
 }
 
-#[derive(Serialize)]
-struct JwtHeader<'a> {
-    jwt: &'a str,
+fn update_request(req: &mut graphql::Request, result: graphql::Request) {
+    req.operation_name = result.operation_name;
+    req.query = result.query;
+    req.variables = result.variables;
 }
 
 #[derive(Deserialize, Clone)]
@@ -595,24 +525,10 @@ struct GatewayInfo {
     token: String,
 }
 
-#[derive(Deserialize, Clone)]
-struct StatusResult {
-    #[serde(skip_serializing_if = "String::is_empty", default)]
-    status: Option<String>,
-
-    #[serde(flatten)]
-    response: Option<graphql::Response>,
-    #[serde(flatten)]
-    request: Option<graphql::Request>,
-}
-
 fn str_to_c_char(val: &str) -> *const c_char {
-    let res: *const c_char;
     if val.len() > 0 {
-        res = CString::new(val.to_owned()).unwrap().into_raw();
-    } else {
-        res = ptr::null()
+        return CString::new(val.to_owned()).unwrap().into_raw();
     }
 
-    return res;
+    return null();
 }
