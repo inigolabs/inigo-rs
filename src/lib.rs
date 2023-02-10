@@ -53,9 +53,14 @@ lazy_static! {
 
     static ref LIB: Library = unsafe {
         return match Library::new(format!("{}", INIGO_LIB_PATH.as_str())) {
-            Ok(val)=>val,
-            Err(_) =>{
-                error!("The router could not find the Inigo library, please make sure you specified {}=/path/to/libinigo.so",LIB_PATH);
+            Ok(val) => val,
+            Err(e) => {
+                let mut msg: String = e.to_string();
+                if msg.contains("No such file or directory") {
+                    msg = format!("The router could not find the Inigo library, please make sure you specified {}=/path/to/libinigo.so", LIB_PATH);
+                };
+
+                error!("{}", &msg);
                 process::exit(1);
             }
         }
