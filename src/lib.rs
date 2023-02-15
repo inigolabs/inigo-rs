@@ -32,6 +32,7 @@ struct SidecarConfig {
     schema: *const c_char,
     introspection: *const c_char,
     egress_url: *const c_char,
+    gateway: *const usize,
 }
 
 const LIB_PATH: &str = "INIGO_LIB_PATH";
@@ -65,6 +66,8 @@ lazy_static! {
             }
         }
     };
+
+      static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
 }
 
 fn create(ptr: *const SidecarConfig) -> usize {
@@ -149,6 +152,16 @@ fn process_response(
         LIB.get::<Symbol<Func>>(b"process_response").unwrap()(
             handle_ptr, req_handle, input, input_len, output, output_len,
         )
+    }
+}
+
+fn update_schema(
+    handle_ptr: usize,
+    input: *const c_char,
+) {
+    unsafe {
+        type Func = extern "C" fn(handle_ptr: usize, input: *const c_char);
+        LIB.get::<Symbol<Func>>(b"update_schema").unwrap()(handle_ptr, input)
     }
 }
 
@@ -295,6 +308,18 @@ pub struct Middleware {
     sidecars: HashMap<String, usize>,
 }
 
+impl Clone for Middleware {
+    fn clone(&self) -> Middleware {
+        Middleware {
+            jwt_header: self.jwt_header.to_owned(),
+            handler: self.handler,
+            enabled: self.enabled,
+            sidecars: self.sidecars.clone(),
+        }
+    }
+}
+
+
 fn default_as_true() -> bool {
     true
 }
@@ -328,6 +353,13 @@ impl Plugin for Middleware {
             });
         }
 
+        let mut singleton = SINGLETON.lock().unwrap();
+        if singleton.is_some() {
+            let middleware = singleton.as_ref().unwrap().clone();
+            update_schema(middleware.handler, str_to_c_char(init.supergraph_sdl.as_str()));
+            return Ok(middleware);
+        }
+
         let mut middleware = Middleware {
             jwt_header: init.config.jwt_header,
             handler: create(&SidecarConfig {
@@ -338,6 +370,7 @@ impl Plugin for Middleware {
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
                 introspection: null(),
                 egress_url: null(),
+                gateway:null(),
             }),
             enabled: true,
             sidecars: HashMap::new(),
@@ -384,6 +417,7 @@ impl Plugin for Middleware {
                 schema: null(),
                 introspection: null(),
                 ingest: null(),
+                gateway: middleware.handler as *const usize,
             }));
 
             let err = unsafe { CStr::from_ptr(check_last_error()) };
@@ -392,6 +426,8 @@ impl Plugin for Middleware {
                 Err(err.to_str().unwrap())?;
             }
         }
+
+        *singleton = Some(middleware.clone());
 
         Ok(middleware)
     }
