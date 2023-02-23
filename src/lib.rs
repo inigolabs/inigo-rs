@@ -157,10 +157,11 @@ fn process_response(
 fn update_schema(
     handle_ptr: usize,
     input: *const c_char,
+    input_len: usize,
 ) {
     unsafe {
-        type Func = extern "C" fn(handle_ptr: usize, input: *const c_char);
-        LIB.get::<Symbol<Func>>(b"update_schema").unwrap()(handle_ptr, input)
+        type Func = extern "C" fn(handle_ptr: usize, input: *const c_char, input_len: usize);
+        LIB.get::<Symbol<Func>>(b"update_schema").unwrap()(handle_ptr, input, input_len)
     }
 }
 
@@ -335,7 +336,7 @@ impl Plugin for Middleware {
         let mut singleton = SINGLETON.lock().unwrap();
         if singleton.is_some() {
             let middleware = singleton.as_ref().unwrap().clone();
-            update_schema(middleware.handler, str_to_c_char(init.supergraph_sdl.as_str()));
+            update_schema(middleware.handler, str_to_c_char(init.supergraph_sdl.as_str()), init.supergraph_sdl.len());
             return Ok(middleware);
         }
 
@@ -348,7 +349,7 @@ impl Plugin for Middleware {
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
                 introspection: null(),
                 egress_url: null(),
-                gateway:null(),
+                gateway: null(),
             }),
             enabled: true,
             sidecars: HashMap::new(),
