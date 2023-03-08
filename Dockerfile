@@ -7,8 +7,8 @@ WORKDIR /router/examples/middleware
 
 ARG TARGETPLATFORM
 RUN case "$TARGETPLATFORM" in \
-  "linux/arm64") echo aarch64-unknown-linux-gnu > /target.txt ;; \
-  "linux/amd64") echo x86_64-unknown-linux-gnu > /target.txt ;; \
+  "linux/arm64") echo aarch64-unknown-linux-musl > /target.txt ;; \
+  "linux/amd64") echo x86_64-unknown-linux-musl > /target.txt ;; \
   *) exit 1 ;; \
 esac
 
