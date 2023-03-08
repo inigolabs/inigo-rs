@@ -14,6 +14,7 @@ esac
 
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup component add rustfmt
+RUN rustup target add $(cat /target.txt)
 RUN cargo build --release --target $(cat /target.txt)
 
 FROM gcr.io/distroless/cc-debian11
