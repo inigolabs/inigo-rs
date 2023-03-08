@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM rust:1.67-slim as rust-builder
 
-RUN apt-get update && apt-get install -y curl git pkg-config musl-dev libssl-dev protobuf-compiler
+RUN apt-get update && apt-get install -y curl git pkg-config clang musl-tools musl-dev libssl-dev protobuf-compiler
 # Copy source files
 COPY . /router
 WORKDIR /router/examples/middleware
@@ -15,6 +15,7 @@ esac
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup component add rustfmt
 RUN rustup target add $(cat /target.txt)
+RUN cargo add ring
 RUN cargo build --release --target $(cat /target.txt)
 RUN mv /router/examples/middleware/target/$(cat /target.txt)/release/router /bin/router
 
