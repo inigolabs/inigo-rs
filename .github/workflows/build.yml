@@ -34,6 +34,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          provenance: false
           push: true
           tags: |
             ${{ env.IMAGE_NAME_ROUTER }}:${{ env.IMAGE_TAG }}
