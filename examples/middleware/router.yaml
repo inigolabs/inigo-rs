@@ -2,6 +2,9 @@ sandbox:
   enabled: true
 supergraph:
   introspection: true
+  listen: 0.0.0.0:4000
+health-check:
+  listen: 0.0.0.0:8088
 homepage:
   enabled: false
 include_subgraph_errors:
