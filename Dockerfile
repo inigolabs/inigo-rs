@@ -1,4 +1,4 @@
-FROM --platform=${TARGETPLATFORM:-linux/amd64} rust:1.67-slim as rust-builder
+FROM --platform=${TARGETPLATFORM:-linux/amd64} rust:1.69 as rust-builder
 
 RUN apt-get update && apt-get install -y curl git pkg-config libssl-dev protobuf-compiler
 # Copy source files

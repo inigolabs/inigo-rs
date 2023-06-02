@@ -428,6 +428,14 @@ impl Plugin for Middleware {
                 let headers = &req.subgraph_request.headers().clone();
                 let resp = i.process_request(req.subgraph_request.body_mut(), headers);
 
+
+                let traceparent = req.subgraph_request.body().extensions.get("traceparent");
+                if traceparent.is_some() {
+                    let traceparent_val = traceparent.unwrap().clone();
+                    req.subgraph_request.headers_mut().append("traceparent", HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap());
+                }
+
+
                 if resp.is_none() {
                     return Ok(ControlFlow::Continue(req));
                 }
@@ -473,6 +481,12 @@ impl Plugin for Middleware {
                 let headers = &req.supergraph_request.headers().clone();
                 let resp = i.process_request(req.supergraph_request.body_mut(), headers);
 
+                let traceparent = req.supergraph_request.body().extensions.get("traceparent");
+                if traceparent.is_some() {
+                    let traceparent_val = traceparent.unwrap().clone();
+                    req.supergraph_request.headers_mut().append("traceparent",HeaderValue::from_str( traceparent_val.as_str().unwrap()).unwrap());
+                }
+
                 if resp.is_none() {
                     return Ok(ControlFlow::Continue(req));
                 }
@@ -514,6 +528,7 @@ fn update_request(req: &mut graphql::Request, result: graphql::Request) {
     req.operation_name = result.operation_name;
     req.query = result.query;
     req.variables = result.variables;
+    req.extensions = result.extensions;
 }
 
 #[derive(Deserialize, Clone)]
