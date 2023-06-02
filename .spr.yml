@@ -3,7 +3,6 @@ githubRepoName: inigo-rs
 githubHost: github.com
 requireChecks: true
 requireApproval: true
-githubRemote: origin
-githubBranch: master
-remoteBranches: []
 mergeMethod: rebase
+mergeQueue: false
+forceFetchTags: false
