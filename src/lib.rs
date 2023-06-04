@@ -3,11 +3,11 @@ extern crate lazy_static;
 
 use std::collections::HashMap;
 use std::env;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::ops::ControlFlow;
 use std::os::raw::c_char;
 use std::process;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 use std::str;
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +20,6 @@ use libloading::{Library, Symbol};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tower::{BoxError, ServiceBuilder, ServiceExt};
-use tracing::error;
 
 #[repr(C)]
 struct SidecarConfig {
@@ -60,129 +59,42 @@ lazy_static! {
                     msg = format!("The router could not find the Inigo library, please make sure you specified {}=/path/to/libinigo.so", LIB_PATH);
                 };
 
-                error!("{}", &msg);
+                println!("{}", &msg);
                 process::exit(1);
             }
         }
     };
 
-      static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
+    static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
+
+    static ref PROCESS_REQUEST: Symbol<'static,FnProcessRequest> =  unsafe {LIB.get(b"process_request").unwrap()};
+
+    static ref CREATE: Symbol<'static,FnCreate> =  unsafe {LIB.get(b"create").unwrap()};
+
+    static ref DISPOSE_HANDLE: Symbol<'static,FnDisposeHandle> =  unsafe {LIB.get(b"disposeHandle").unwrap()};
+
+    static ref CHECK_LAST_ERROR: Symbol<'static,FnCheckLastError> =  unsafe {LIB.get(b"check_lasterror").unwrap()};
+
+    static ref PROCESS_RESPONSE: Symbol<'static,FnProcessResponse> =  unsafe {LIB.get(b"process_response").unwrap()};
+
+    static ref UPDATE_SCHEMA: Symbol<'static,FnUpdateSchema> =  unsafe {LIB.get(b"update_schema").unwrap()};
+
+    static ref GATEWAY_INFO: Symbol<'static,FnGatewayInfo> =  unsafe {LIB.get(b"gateway_info").unwrap()};
 }
 
-fn create(ptr: *const SidecarConfig) -> usize {
-    type Func = extern "C" fn(ptr: *const SidecarConfig) -> usize;
+type FnGatewayInfo = extern "C" fn(handle_ptr: usize, output: &*mut c_char, output_len: &mut usize) -> usize;
 
-    unsafe { LIB.get::<Symbol<Func>>(b"create").unwrap()(ptr) }
-}
+type FnUpdateSchema = extern "C" fn(handle_ptr: usize, input: *mut c_char, input_len: usize);
 
-fn dispose_memory(ptr: *mut c_char) {
-    type Func = extern "C" fn(ptr: *mut c_char);
-    unsafe {
-        LIB.get::<Symbol<Func>>(b"disposeMemory").unwrap()(ptr);
-    }
-}
+type FnProcessResponse = extern "C" fn(handle_ptr: usize, req_handle: usize, input: *const c_char, input_len: usize, output: &*mut c_char, output_len: &mut usize);
 
-fn dispose_handle(handle: usize) {
-    type Func = extern "C" fn(handle: usize);
-    unsafe {
-        LIB.get::<Symbol<Func>>(b"disposeHandle").unwrap()(handle);
-    }
-}
+type FnCheckLastError = extern "C" fn() -> *mut c_char;
 
-fn check_last_error() -> *const c_char {
-    type Func = extern "C" fn() -> *const c_char;
-    unsafe { LIB.get::<Symbol<Func>>(b"check_lasterror").unwrap()() }
-}
+type FnDisposeHandle = extern "C" fn(handle: usize);
 
-fn process_request(
-    handle_ptr: usize,
-    header: *const c_char,
-    header_len: usize,
-    input: *const c_char,
-    input_len: usize,
-    resp: &*mut c_char,
-    resp_len: &mut usize,
-    req: &*mut c_char,
-    req_len: &mut usize,
-) -> usize {
-    unsafe {
-        type Func = extern "C" fn(
-            handle_ptr: usize,
-            header: *const c_char,
-            header_len: usize,
-            input: *const c_char,
-            input_len: usize,
-            resp: &*mut c_char,
-            resp_len: &mut usize,
-            req: &*mut c_char,
-            req_len: &mut usize,
-        ) -> usize;
-        LIB.get::<Symbol<Func>>(b"process_request").unwrap()(
-            handle_ptr,
-            header,
-            header_len,
-            input,
-            input_len,
-            resp,
-            resp_len,
-            req,
-            req_len,
-        )
-    }
-}
+type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
-fn process_response(
-    handle_ptr: usize,
-    req_handle: usize,
-    input: *const c_char,
-    input_len: usize,
-    output: &*mut c_char,
-    output_len: &mut usize,
-) {
-    unsafe {
-        type Func = extern "C" fn(
-            handle_ptr: usize,
-            req_handle: usize,
-            input: *const c_char,
-            input_len: usize,
-            output: &*mut c_char,
-            output_len: &mut usize,
-        );
-        LIB.get::<Symbol<Func>>(b"process_response").unwrap()(
-            handle_ptr, req_handle, input, input_len, output, output_len,
-        )
-    }
-}
-
-fn update_schema(
-    handle_ptr: usize,
-    input: *const c_char,
-    input_len: usize,
-) {
-    unsafe {
-        type Func = extern "C" fn(handle_ptr: usize, input: *const c_char, input_len: usize);
-        LIB.get::<Symbol<Func>>(b"update_schema").unwrap()(handle_ptr, input, input_len)
-    }
-}
-
-fn gateway_info(
-    handle_ptr: usize,
-    output: &*mut c_char,
-    output_len: &mut usize,
-) -> usize {
-    unsafe {
-        type Func = extern "C" fn(
-            handle_ptr: usize,
-            output: &*mut c_char,
-            output_len: &mut usize,
-        ) -> usize;
-        LIB.get::<Symbol<Func>>(b"gateway_info").unwrap()(
-            handle_ptr,
-            output,
-            output_len,
-        )
-    }
-}
+type FnProcessRequest = extern "C" fn(handle_ptr: usize, header: *const c_char, header_len: usize, input: *const c_char, input_len: usize, resp: &*mut c_char, resp_len: &mut usize, req: &*mut c_char, req_len: &mut usize) -> usize;
 
 #[derive(Clone)]
 struct Inigo {
@@ -198,7 +110,7 @@ impl Inigo {
         };
     }
 
-    fn get_headers(headers: &HeaderMap<HeaderValue>) -> (*const c_char, usize) {
+    fn get_headers(headers: &HeaderMap<HeaderValue>) -> (CString, usize) {
         let mut header_hashmap = HashMap::new();
         for (k, v) in headers {
             let k = k.as_str().to_owned();
@@ -210,78 +122,74 @@ impl Inigo {
 
         let h_len = h.len();
 
-        return (CString::new(h).unwrap().into_raw(), h_len);
+        return (CString::new(h).expect("CString::new failed"), h_len);
     }
 
     fn process_request(&self, request: &mut graphql::Request, headers: &HeaderMap<HeaderValue>) -> Option<graphql::Response> {
-        let (req, req_len, resp, resp_len) = (
-            CString::into_raw(Default::default()),
-            &mut 0,
-            CString::into_raw(Default::default()),
-            &mut 0,
-        );
+        let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
 
         let req_src: String = serde_json::to_string(&request).unwrap();
+
+        let req_src_len = req_src.len();
+        let req_src_cstr = CString::new(req_src).expect("CString::new failed");
 
         let (header, header_len) = Inigo::get_headers(headers);
 
         let mut processed = self.processed.lock().unwrap();
-        *processed = process_request(
+        *processed = PROCESS_REQUEST(
             self.handler,
-            header,
+            header.as_ptr(),
             header_len,
-            CString::into_raw(CString::new(req_src.as_str()).unwrap()),
-            req_src.len(),
+            req_src_cstr.as_ptr(),
+            req_src_len,
             &resp,
             resp_len,
             &req,
             req_len,
         );
 
-        let res_resp = unsafe { CStr::from_ptr(resp).to_bytes()[..*resp_len].to_owned() };
-        dispose_memory(resp);
-
-        let res_req =
-            unsafe { CStr::from_ptr(req).to_bytes()[..*req_len].to_owned() };
-        dispose_memory(req);
-
-        if *resp_len > 0 {
-            return serde_json::from_slice(res_resp.as_slice()).unwrap();
+        if !resp.is_null() {
+            let res_resp = unsafe { CString::from_raw(resp).to_bytes()[..*resp_len].to_owned() };
+            DISPOSE_HANDLE(*processed);
+            return serde_json::from_slice(&res_resp).unwrap();
         }
 
-        if *req_len > 0 {
-            update_request(request, serde_json::from_slice(res_req.as_slice()).unwrap());
+        if !req.is_null() {
+            let res_req = unsafe { CString::from_raw(req).to_bytes()[..*req_len].to_owned() };
+            update_request(request, serde_json::from_slice(&res_req).unwrap());
         }
-
 
         return None;
     }
 
     fn process_response(&self, resp: &mut graphql::Response) {
-        let v = serde_json::to_value(&resp).unwrap();
+        let v = serde_json::to_value(&resp).unwrap().to_string();
 
-        let _input = CString::into_raw(CString::new(v.to_string()).unwrap());
-        let _input_len = v.to_string().len();
+        let input_len = v.len();
+        let input = CString::new(v).expect("CString::new failed");
 
-        let (out, out_len) = (CString::into_raw(Default::default()), &mut 0);
+        let (out, out_len) = (null_mut(), &mut 0);
 
-        process_response(
+        let processed = self.processed.lock().unwrap().clone();
+
+        PROCESS_RESPONSE(
             self.handler,
-            self.processed.lock().unwrap().clone(),
-            _input,
-            _input_len,
+            processed,
+            input.as_ptr(),
+            input_len,
             &out,
-            out_len,
+            out_len
         );
 
-        let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
+        if out.is_null() {
+            return;
+        }
 
-        dispose_memory(out);
+        let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
 
-        dispose_handle(self.processed.lock().unwrap().clone());
+        DISPOSE_HANDLE(processed);
 
-        let result: graphql::Response =
-            serde_json::from_str(String::from_utf8(res_out).unwrap().as_str()).unwrap();
+        let result: graphql::Response = serde_json::from_slice(&res_out).unwrap();
 
         resp.data = result.data;
         resp.errors = result.errors;
@@ -336,12 +244,18 @@ impl Plugin for Middleware {
         let mut singleton = SINGLETON.lock().unwrap();
         if singleton.is_some() {
             let middleware = singleton.as_ref().unwrap().clone();
-            update_schema(middleware.handler, str_to_c_char(init.supergraph_sdl.as_str()), init.supergraph_sdl.len());
+            let sdl = CString::new(init.supergraph_sdl.as_str()).unwrap().into_raw();
+
+            UPDATE_SCHEMA(middleware.handler, sdl, init.supergraph_sdl.len());
+
+            // Take the ownership back to rust and drop the owner
+            let _ = unsafe { CString::from_raw(sdl) };
+
             return Ok(middleware);
         }
 
         let mut middleware = Middleware {
-            handler: create(&SidecarConfig {
+            handler: CREATE(&SidecarConfig {
                 debug: false,
                 ingest: null(),
                 service: str_to_c_char(&init.config.service),
@@ -355,28 +269,30 @@ impl Plugin for Middleware {
             sidecars: HashMap::new(),
         };
 
-        let err = unsafe { CStr::from_ptr(check_last_error()) };
+        let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
 
         if !err.to_str().unwrap().is_empty() {
             Err(err.to_str().unwrap())?;
         }
 
-        let (out, out_len) = (CString::into_raw(Default::default()), &mut 0, );
+        let (out, out_len) = (null_mut(), &mut 0, );
 
-        gateway_info(middleware.handler, &out, out_len);
+        GATEWAY_INFO(middleware.handler, &out, out_len);
 
-        let res_out = unsafe { CStr::from_ptr(out).to_bytes()[..*out_len].to_owned() };
+        if out.is_null() {
+            println!("gateway info response cannot be null");
+            process::exit(1);
+        }
 
-        dispose_memory(out);
+        let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
 
         let mut result: Vec<GatewayInfo> = vec![];
 
         if *out_len > 0 {
-            let info = String::from_utf8(res_out).unwrap().as_str().to_string();
-            result = match serde_json::from_str(&info) {
+            result = match serde_json::from_slice(&res_out) {
                 Ok(val) => val,
                 Err(err) => {
-                    let resp: graphql::Response = serde_json::from_str(&info).unwrap();
+                    let resp: graphql::Response = serde_json::from_slice(&res_out).unwrap();
 
                     for error in resp.errors.iter() {
                         return Err(format!("{}", error))?;
@@ -388,7 +304,7 @@ impl Plugin for Middleware {
         }
 
         for info in result.iter() {
-            middleware.sidecars.insert(info.name.to_owned(), create(&SidecarConfig {
+            middleware.sidecars.insert(info.name.to_owned(), CREATE(&SidecarConfig {
                 debug: false,
                 egress_url: str_to_c_char(&info.url.as_str()),
                 service: str_to_c_char(&init.config.service),
@@ -399,7 +315,7 @@ impl Plugin for Middleware {
                 gateway: middleware.handler as *const usize,
             }));
 
-            let err = unsafe { CStr::from_ptr(check_last_error()) };
+            let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
 
             if !err.to_str().unwrap().is_empty() {
                 Err(err.to_str().unwrap())?;
@@ -428,21 +344,17 @@ impl Plugin for Middleware {
                 let headers = &req.subgraph_request.headers().clone();
                 let resp = i.process_request(req.subgraph_request.body_mut(), headers);
 
-
                 let traceparent = req.subgraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
                     req.subgraph_request.headers_mut().append("traceparent", HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap());
                 }
 
-
                 if resp.is_none() {
                     return Ok(ControlFlow::Continue(req));
                 }
 
                 let response = resp.unwrap();
-
-                dispose_handle(i.processed.lock().unwrap().clone());
 
                 return Ok(ControlFlow::Break(
                     subgraph::Response::builder()
@@ -484,7 +396,7 @@ impl Plugin for Middleware {
                 let traceparent = req.supergraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
-                    req.supergraph_request.headers_mut().append("traceparent",HeaderValue::from_str( traceparent_val.as_str().unwrap()).unwrap());
+                    req.supergraph_request.headers_mut().append("traceparent", HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap());
                 }
 
                 if resp.is_none() {
@@ -492,8 +404,6 @@ impl Plugin for Middleware {
                 }
 
                 let response = resp.unwrap();
-
-                dispose_handle(i.processed.lock().unwrap().clone());
 
                 return Ok(ControlFlow::Break(
                     supergraph::Response::builder()
@@ -518,7 +428,7 @@ impl Plugin for Middleware {
 
         ServiceBuilder::new()
             .checkpoint(process_req_fn(inigo.clone()))
-            .map_response(process_resp_fn(inigo.clone()))
+            .map_response(process_resp_fn(inigo))
             .service(service)
             .boxed()
     }
