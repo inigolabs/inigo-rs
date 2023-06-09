@@ -1,3 +1,5 @@
+pub mod registry;
+
 #[macro_use]
 extern crate lazy_static;
 
