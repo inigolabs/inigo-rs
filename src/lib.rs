@@ -308,7 +308,7 @@ impl Plugin for Middleware {
         for info in result.iter() {
             middleware.sidecars.insert(info.name.to_owned(), CREATE(&SidecarConfig {
                 debug: false,
-                egress_url: str_to_c_char(&info.url.as_str()),
+                egress_url: null(),
                 service: str_to_c_char(&init.config.service),
                 token: str_to_c_char(&info.token.as_str()),
                 schema: null(),
@@ -447,8 +447,6 @@ fn update_request(req: &mut graphql::Request, result: graphql::Request) {
 struct GatewayInfo {
     #[serde(skip_serializing_if = "String::is_empty", default)]
     name: String,
-    #[serde(skip_serializing_if = "String::is_empty", default)]
-    url: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     token: String,
 }
