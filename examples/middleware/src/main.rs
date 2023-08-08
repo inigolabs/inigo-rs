@@ -1,7 +1,7 @@
 use anyhow::Result;
 use apollo_router::register_plugin;
-use inigo_rs::Middleware;
 use inigo_rs::registry::InigoRegistry;
+use inigo_rs::Middleware;
 
 register_plugin!("inigo", "middleware", Middleware);
 
