@@ -24,16 +24,16 @@ use serde::Deserialize;
 use tower::{BoxError, ServiceBuilder, ServiceExt};
 
 #[repr(C)]
-struct SidecarConfig {
-    debug: bool,
-    ingest: *const c_char,
-    service: *const c_char,
-    token: *const c_char,
-    schema: *const c_char,
-    introspection: *const c_char,
-    egress_url: *const c_char,
-    gateway: *const usize,
-    disable_response_data: bool,
+pub struct SidecarConfig {
+    pub debug: bool,
+    pub ingest: *const c_char,
+    pub service: *const c_char,
+    pub token: *const c_char,
+    pub schema: *const c_char,
+    pub introspection: *const c_char,
+    pub egress_url: *const c_char,
+    pub gateway: *const usize,
+    pub disable_response_data: bool,
 }
 
 const LIB_PATH: &str = "INIGO_LIB_PATH";
@@ -77,6 +77,8 @@ lazy_static! {
     static ref PROCESS_REQUEST: Symbol<'static, FnProcessRequest> =
         unsafe { LIB.get(b"process_request").unwrap() };
     static ref CREATE: Symbol<'static, FnCreate> = unsafe { LIB.get(b"create").unwrap() };
+    pub static ref CREATE_MOCK: Symbol<'static, FnCreate> =
+        unsafe { LIB.get(b"create_mock").unwrap() };
     static ref DISPOSE_HANDLE: Symbol<'static, FnDisposeHandle> =
         unsafe { LIB.get(b"disposeHandle").unwrap() };
     static ref CHECK_LAST_ERROR: Symbol<'static, FnCheckLastError> =
@@ -122,13 +124,13 @@ type FnProcessRequest = extern "C" fn(
 ) -> usize;
 
 #[derive(Clone)]
-struct Inigo {
+pub struct Inigo {
     handler: usize,
     processed: Arc<Mutex<usize>>,
 }
 
 impl Inigo {
-    fn new(handler: usize) -> Self {
+    pub fn new(handler: usize) -> Self {
         return Inigo {
             handler,
             processed: Default::default(),
@@ -150,7 +152,7 @@ impl Inigo {
         return (CString::new(h).expect("CString::new failed"), h_len);
     }
 
-    fn process_request(
+    pub fn process_request(
         &self,
         request: &mut graphql::Request,
         headers: &HeaderMap<HeaderValue>,
@@ -191,7 +193,7 @@ impl Inigo {
         return None;
     }
 
-    fn process_response(&self, resp: &mut graphql::Response) {
+    pub fn process_response(&self, resp: &mut graphql::Response) {
         let v = serde_json::to_value(&resp).unwrap().to_string();
 
         let input_len = v.len();
