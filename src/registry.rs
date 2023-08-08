@@ -24,13 +24,13 @@ SOFTWARE.
 */
 
 use anyhow::{anyhow, Result};
+use jsonpath::Selector;
+use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 use std::env;
 use std::io::Write;
 use std::thread;
-use serde_json::{Value};
-use jsonpath::Selector;
 
 #[derive(Debug, Clone)]
 pub struct InigoRegistry {
@@ -52,7 +52,7 @@ impl InigoRegistry {
             endpoint: None,
             key: None,
             poll_interval: None,
-            enabled:None,
+            enabled: None,
         };
 
         // Pass values from user's config
@@ -66,13 +66,17 @@ impl InigoRegistry {
         // Pass values from environment variables if they are not set in the user's config
         if config.enabled.is_none() {
             if let Ok(enabled) = env::var("INIGO_REGISTRY_ENABLED") {
-                config.enabled = Some(enabled.parse().expect("failed to parse INIGO_REGISTRY_ENABLED"));
+                config.enabled = Some(
+                    enabled
+                        .parse()
+                        .expect("failed to parse INIGO_REGISTRY_ENABLED"),
+                );
             }
         }
 
         if config.enabled.is_none() || !config.enabled.unwrap() {
             println!("You're not using GraphQL Inigo as the source of schema.");
-            return  Ok(());
+            return Ok(());
         }
 
         if config.endpoint.is_none() {
@@ -121,7 +125,9 @@ impl InigoRegistry {
 
         // Throw if key is empty
         if key.is_empty() {
-            return Err(anyhow!("environment variable INIGO_SERVICE_TOKEN not found"));
+            return Err(anyhow!(
+                "environment variable INIGO_SERVICE_TOKEN not found"
+            ));
         }
 
         let file_name = "supergraph-schema.graphql".to_string();
@@ -158,15 +164,14 @@ impl InigoRegistry {
             .map_err(|err| err.to_string())?;
         let mut headers = http::HeaderMap::new();
 
-        headers.insert("Authorization",  self.key.parse().unwrap());
-        headers.insert("Content-Type",  "application/json".parse().unwrap());
+        headers.insert("Authorization", self.key.parse().unwrap());
+        headers.insert("Content-Type", "application/json".parse().unwrap());
 
         //
         let resp = client
-            .post(  self.endpoint.as_str())
+            .post(self.endpoint.as_str())
             .headers(headers)
             .body("{\"query\":\"query composedSchema { gatewayInfo { composedSchema }}\"}")
-
             .send()
             .map_err(|e| e.to_string())?;
 
@@ -191,7 +196,8 @@ impl InigoRegistry {
 
         match resp {
             Some(supergraph) => {
-                let mut file = std::fs::File::create(self.file_name.clone()).map_err(|e| e.to_string())?;
+                let mut file =
+                    std::fs::File::create(self.file_name.clone()).map_err(|e| e.to_string())?;
                 file.write_all(supergraph.as_bytes())
                     .map_err(|e| e.to_string())?;
             }
