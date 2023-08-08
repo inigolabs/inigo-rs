@@ -24,15 +24,15 @@ use serde::Deserialize;
 use tower::{BoxError, ServiceBuilder, ServiceExt};
 
 #[repr(C)]
-struct SidecarConfig {
-    debug: bool,
-    ingest: *const c_char,
-    service: *const c_char,
-    token: *const c_char,
-    schema: *const c_char,
-    introspection: *const c_char,
-    egress_url: *const c_char,
-    gateway: *const usize,
+pub struct SidecarConfig {
+    pub debug: bool,
+    pub ingest: *const c_char,
+    pub service: *const c_char,
+    pub token: *const c_char,
+    pub schema: *const c_char,
+    pub introspection: *const c_char,
+    pub egress_url: *const c_char,
+    pub gateway: *const usize,
 }
 
 const LIB_PATH: &str = "INIGO_LIB_PATH";
@@ -42,16 +42,22 @@ lazy_static! {
         Some(val) => val.into_string().unwrap(),
         None => {
             let ext = match sys_info::os_type().unwrap().as_str() {
-                "Linux" => { "so" }
-                "Darwin" => { "dylib" }
-                "Windows" => { "dll" }
-                _ => { "so" }
+                "Linux" => "so",
+                "Darwin" => "dylib",
+                "Windows" => "dll",
+                _ => "so",
             };
 
-            return env::current_exe().unwrap().parent().unwrap().join("libinigo.".to_owned() + ext).to_str().unwrap().to_owned();
+            return env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("libinigo.".to_owned() + ext)
+                .to_str()
+                .unwrap()
+                .to_owned();
         }
     };
-
     static ref LIB: Library = unsafe {
         return match Library::new(format!("{}", INIGO_LIB_PATH.as_str())) {
             Ok(val) => val,
@@ -64,31 +70,37 @@ lazy_static! {
                 println!("{}", &msg);
                 process::exit(1);
             }
-        }
+        };
     };
-
     static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
-
-    static ref PROCESS_REQUEST: Symbol<'static,FnProcessRequest> =  unsafe {LIB.get(b"process_request").unwrap()};
-
-    static ref CREATE: Symbol<'static,FnCreate> =  unsafe {LIB.get(b"create").unwrap()};
-
-    static ref DISPOSE_HANDLE: Symbol<'static,FnDisposeHandle> =  unsafe {LIB.get(b"disposeHandle").unwrap()};
-
-    static ref CHECK_LAST_ERROR: Symbol<'static,FnCheckLastError> =  unsafe {LIB.get(b"check_lasterror").unwrap()};
-
-    static ref PROCESS_RESPONSE: Symbol<'static,FnProcessResponse> =  unsafe {LIB.get(b"process_response").unwrap()};
-
-    static ref UPDATE_SCHEMA: Symbol<'static,FnUpdateSchema> =  unsafe {LIB.get(b"update_schema").unwrap()};
-
-    static ref GATEWAY_INFO: Symbol<'static,FnGatewayInfo> =  unsafe {LIB.get(b"gateway_info").unwrap()};
+    static ref PROCESS_REQUEST: Symbol<'static, FnProcessRequest> =
+        unsafe { LIB.get(b"process_request").unwrap() };
+    static ref CREATE: Symbol<'static, FnCreate> = unsafe { LIB.get(b"create").unwrap() };
+    static ref DISPOSE_HANDLE: Symbol<'static, FnDisposeHandle> =
+        unsafe { LIB.get(b"disposeHandle").unwrap() };
+    static ref CHECK_LAST_ERROR: Symbol<'static, FnCheckLastError> =
+        unsafe { LIB.get(b"check_lasterror").unwrap() };
+    static ref PROCESS_RESPONSE: Symbol<'static, FnProcessResponse> =
+        unsafe { LIB.get(b"process_response").unwrap() };
+    static ref UPDATE_SCHEMA: Symbol<'static, FnUpdateSchema> =
+        unsafe { LIB.get(b"update_schema").unwrap() };
+    static ref GATEWAY_INFO: Symbol<'static, FnGatewayInfo> =
+        unsafe { LIB.get(b"gateway_info").unwrap() };
 }
 
-type FnGatewayInfo = extern "C" fn(handle_ptr: usize, output: &*mut c_char, output_len: &mut usize) -> usize;
+type FnGatewayInfo =
+    extern "C" fn(handle_ptr: usize, output: &*mut c_char, output_len: &mut usize) -> usize;
 
 type FnUpdateSchema = extern "C" fn(handle_ptr: usize, input: *mut c_char, input_len: usize);
 
-type FnProcessResponse = extern "C" fn(handle_ptr: usize, req_handle: usize, input: *const c_char, input_len: usize, output: &*mut c_char, output_len: &mut usize);
+type FnProcessResponse = extern "C" fn(
+    handle_ptr: usize,
+    req_handle: usize,
+    input: *const c_char,
+    input_len: usize,
+    output: &*mut c_char,
+    output_len: &mut usize,
+);
 
 type FnCheckLastError = extern "C" fn() -> *mut c_char;
 
@@ -96,16 +108,26 @@ type FnDisposeHandle = extern "C" fn(handle: usize);
 
 type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
-type FnProcessRequest = extern "C" fn(handle_ptr: usize, header: *const c_char, header_len: usize, input: *const c_char, input_len: usize, resp: &*mut c_char, resp_len: &mut usize, req: &*mut c_char, req_len: &mut usize) -> usize;
+type FnProcessRequest = extern "C" fn(
+    handle_ptr: usize,
+    header: *const c_char,
+    header_len: usize,
+    input: *const c_char,
+    input_len: usize,
+    resp: &*mut c_char,
+    resp_len: &mut usize,
+    req: &*mut c_char,
+    req_len: &mut usize,
+) -> usize;
 
 #[derive(Clone)]
-struct Inigo {
+pub struct Inigo {
     handler: usize,
     processed: Arc<Mutex<usize>>,
 }
 
 impl Inigo {
-    fn new(handler: usize) -> Self {
+    pub fn new(handler: usize) -> Self {
         return Inigo {
             handler,
             processed: Default::default(),
@@ -127,7 +149,11 @@ impl Inigo {
         return (CString::new(h).expect("CString::new failed"), h_len);
     }
 
-    fn process_request(&self, request: &mut graphql::Request, headers: &HeaderMap<HeaderValue>) -> Option<graphql::Response> {
+    pub fn process_request(
+        &self,
+        request: &mut graphql::Request,
+        headers: &HeaderMap<HeaderValue>,
+    ) -> Option<graphql::Response> {
         let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
 
         let req_src: String = serde_json::to_string(&request).unwrap();
@@ -164,7 +190,7 @@ impl Inigo {
         return None;
     }
 
-    fn process_response(&self, resp: &mut graphql::Response) {
+    pub fn process_response(&self, resp: &mut graphql::Response) {
         let v = serde_json::to_value(&resp).unwrap().to_string();
 
         let input_len = v.len();
@@ -180,7 +206,7 @@ impl Inigo {
             input.as_ptr(),
             input_len,
             &out,
-            out_len
+            out_len,
         );
 
         if out.is_null() {
@@ -216,7 +242,6 @@ impl Clone for Middleware {
     }
 }
 
-
 fn default_as_true() -> bool {
     true
 }
@@ -246,7 +271,9 @@ impl Plugin for Middleware {
         let mut singleton = SINGLETON.lock().unwrap();
         if singleton.is_some() {
             let middleware = singleton.as_ref().unwrap().clone();
-            let sdl = CString::new(init.supergraph_sdl.as_str()).unwrap().into_raw();
+            let sdl = CString::new(init.supergraph_sdl.as_str())
+                .unwrap()
+                .into_raw();
 
             UPDATE_SCHEMA(middleware.handler, sdl, init.supergraph_sdl.len());
 
@@ -277,7 +304,7 @@ impl Plugin for Middleware {
             Err(err.to_str().unwrap())?;
         }
 
-        let (out, out_len) = (null_mut(), &mut 0, );
+        let (out, out_len) = (null_mut(), &mut 0);
 
         GATEWAY_INFO(middleware.handler, &out, out_len);
 
@@ -306,16 +333,19 @@ impl Plugin for Middleware {
         }
 
         for info in result.iter() {
-            middleware.sidecars.insert(info.name.to_owned(), CREATE(&SidecarConfig {
-                debug: false,
-                egress_url: null(),
-                service: str_to_c_char(&init.config.service),
-                token: str_to_c_char(&info.token.as_str()),
-                schema: null(),
-                introspection: null(),
-                ingest: null(),
-                gateway: middleware.handler as *const usize,
-            }));
+            middleware.sidecars.insert(
+                info.name.to_owned(),
+                CREATE(&SidecarConfig {
+                    debug: false,
+                    egress_url: null(),
+                    service: str_to_c_char(&init.config.service),
+                    token: str_to_c_char(&info.token.as_str()),
+                    schema: null(),
+                    introspection: null(),
+                    ingest: null(),
+                    gateway: middleware.handler as *const usize,
+                }),
+            );
 
             let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
 
@@ -328,7 +358,6 @@ impl Plugin for Middleware {
 
         Ok(middleware)
     }
-
 
     fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
         if !self.enabled {
@@ -349,7 +378,10 @@ impl Plugin for Middleware {
                 let traceparent = req.subgraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
-                    req.subgraph_request.headers_mut().append("traceparent", HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap());
+                    req.subgraph_request.headers_mut().append(
+                        "traceparent",
+                        HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
+                    );
                 }
 
                 if resp.is_none() {
@@ -398,7 +430,10 @@ impl Plugin for Middleware {
                 let traceparent = req.supergraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
-                    req.supergraph_request.headers_mut().append("traceparent", HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap());
+                    req.supergraph_request.headers_mut().append(
+                        "traceparent",
+                        HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
+                    );
                 }
 
                 if resp.is_none() {
