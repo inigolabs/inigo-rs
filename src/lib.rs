@@ -220,9 +220,13 @@ impl Inigo {
 
         let result: graphql::Response = serde_json::from_slice(&res_out).unwrap();
 
-        resp.data = result.data;
-        resp.errors = result.errors;
-        resp.extensions = result.extensions;
+        for err in result.errors {
+            resp.errors.push(err)
+        }
+
+        for (field_name, field_value) in result.extensions {
+            resp.extensions.insert(field_name, field_value);
+        }
     }
 }
 
@@ -294,7 +298,7 @@ impl Plugin for Middleware {
                 introspection: null(),
                 egress_url: null(),
                 gateway: null(),
-                disable_response_data: false,
+                disable_response_data: true,
             }),
             enabled: true,
             sidecars: HashMap::new(),
@@ -340,7 +344,7 @@ impl Plugin for Middleware {
                     introspection: null(),
                     ingest: null(),
                     gateway: middleware.handler as *const usize,
-                    disable_response_data: false,
+                    disable_response_data: true,
                 }),
             );
 
