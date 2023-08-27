@@ -308,16 +308,10 @@ impl Plugin for Middleware {
 
         GATEWAY_INFO(middleware.handler, &out, out_len);
 
-        if out.is_null() {
-            println!("gateway info response cannot be null");
-            process::exit(1);
-        }
-
-        let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
-
         let mut result: Vec<GatewayInfo> = vec![];
 
         if *out_len > 0 {
+            let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
             result = match serde_json::from_slice(&res_out) {
                 Ok(val) => val,
                 Err(err) => {
