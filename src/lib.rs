@@ -20,7 +20,7 @@ use apollo_router::services::{subgraph, supergraph};
 use http::{HeaderMap, HeaderValue};
 use libloading::{Library, Symbol};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json_bytes::{ByteString, Value};
 use tower::{BoxError, ServiceBuilder, ServiceExt};
 
@@ -195,7 +195,13 @@ impl Inigo {
     }
 
     pub fn process_response(&self, resp: &mut graphql::Response) {
-        let v = serde_json::to_value(&resp).unwrap().to_string();
+        let v = serde_json::to_value(&ResponseWrapper {
+            errors: resp.errors.clone(),
+            response_size: 0,
+            response_body_counts: count_response_fields(resp),
+        })
+        .unwrap()
+        .to_string();
 
         let input_len = v.len();
         let input = CString::new(v).expect("CString::new failed");
@@ -282,6 +288,14 @@ fn count_response_fields_recursive(
     }
 
     return is_arr;
+}
+
+#[derive(Serialize, Deserialize)]
+struct ResponseWrapper {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    errors: Vec<graphql::Error>,
+    response_size: usize,
+    response_body_counts: HashMap<ByteString, usize>,
 }
 
 #[derive(Debug)]

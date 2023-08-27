@@ -27,10 +27,10 @@ sha2 = { version = "0.10.2", features = ["std"] }
 reqwest = { version = "0.11.11", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 jsonpath = "0.1.1"
 serde_json_bytes = { version = "0.2.1", features = ["preserve_order"] }
-rstest = "0.18.2"
 
 [dev-dependencies]
 criterion = "0.5.1"
+rstest = "0.18.2"
 
 [lib]
 bench = false
