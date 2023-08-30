@@ -33,6 +33,7 @@ struct SidecarConfig {
     introspection: *const c_char,
     egress_url: *const c_char,
     gateway: *const usize,
+    disable_response_data: bool,
 }
 
 const LIB_PATH: &str = "INIGO_LIB_PATH";
@@ -293,6 +294,7 @@ impl Plugin for Middleware {
                 introspection: null(),
                 egress_url: null(),
                 gateway: null(),
+                disable_response_data: false,
             }),
             enabled: true,
             sidecars: HashMap::new(),
@@ -338,6 +340,7 @@ impl Plugin for Middleware {
                     introspection: null(),
                     ingest: null(),
                     gateway: middleware.handler as *const usize,
+                    disable_response_data: false,
                 }),
             );
 
