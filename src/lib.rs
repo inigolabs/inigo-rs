@@ -249,6 +249,11 @@ fn count_response_fields(resp: &graphql::Response) -> HashMap<ByteString, usize>
     if resp.data.is_some() {
         count_response_fields_recursive(&mut counts, &"data".into(), resp.data.as_ref().unwrap());
     }
+
+    let data: ByteString = "data".into();
+    if !counts.contains_key(&data) {
+        counts.insert(data, 1);
+    }
     counts.insert("errors".into(), resp.errors.len());
     counts
 }
@@ -622,6 +627,7 @@ mod tests {
     #[case(
         r#"{"data":{"key1":"val1","key2":"val2"}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.key1".into(), 1),
             ("data.key2".into(), 1),
             ("errors".into(), 0),
@@ -630,12 +636,14 @@ mod tests {
     #[case(
         r#"{"data":{"key":[]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("errors".into(), 0),
         ]),
     )]
     #[case(
         r#"{"data":{"key1":[["val1.0","val1.1","val1.2"],["val1.0","val1.1",["v1","v2"]]],"key2":["val2.0","val2.1"]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.key1".into(), 7),
             ("data.key2".into(), 2),
             ("errors".into(), 0),
@@ -644,6 +652,7 @@ mod tests {
     #[case(
         r#"{"data":{"key1":["val1.0","val1.1"],"key2":["val2.0","val2.1"]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.key1".into(), 2),
             ("data.key2".into(), 2),
             ("errors".into(), 0),
@@ -660,12 +669,14 @@ mod tests {
     #[case(
         r#"{"data":null}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("errors".into(), 0),
         ]),
     )]
     #[case(
         r#"{"data":{"first":[{"key":"val"},{"key":"val"}],"second":[{"key":"val"},{"key":"val"}]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.first".into(), 2),
             ("data.first.key".into(), 2),
             ("data.second".into(), 2),
@@ -676,6 +687,7 @@ mod tests {
     #[case(
         r#"{"data":{"first":[{"key1":"val"},{"key2":"val"}],"second":[{"key1":"val"},{"key2":"val"}]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.first".into(), 2),
             ("data.first.key1".into(), 1),
             ("data.first.key2".into(), 1),
@@ -688,6 +700,7 @@ mod tests {
     #[case(
         r#"{"data":{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}],"second":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.first".into(), 2),
             ("data.first.key".into(), 2),
             ("data.first.key1".into(), 1),
@@ -702,6 +715,7 @@ mod tests {
     #[case(
         r#"{"data":{"first":[{"key":"val","key1":{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}},["ignore",{"nested":"val"}],{"key":"val","key2":"val"}],"second":[{"key":[{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}],"key1":"val"},{"key":"val","key2":"val"}]}}"#,
         HashMap::from([
+            ("data".into(), 1),
             ("data.first".into(), 4),
             ("data.first.key".into(), 2),
             ("data.first.key1".into(), 1),
