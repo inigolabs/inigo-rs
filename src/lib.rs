@@ -32,11 +32,11 @@ use tower::{BoxError, Service, ServiceBuilder, ServiceExt};
 #[repr(C)]
 pub struct SidecarConfig {
     pub debug: bool,
-    pub ingest: *const c_char,
+    pub name: *const c_char,
     pub service: *const c_char,
     pub token: *const c_char,
     pub schema: *const c_char,
-    pub introspection: *const c_char,
+    pub runtime: *const c_char,
     pub egress_url: *const c_char,
     pub gateway: *const usize,
     pub disable_response_data: bool,
@@ -369,11 +369,11 @@ impl Plugin for Middleware {
         let mut middleware = Middleware {
             handler: CREATE(&SidecarConfig {
                 debug: false,
-                ingest: null(),
                 service: str_to_c_char(&init.config.service),
                 token: str_to_c_char(&init.config.token),
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
-                introspection: null(),
+                name: str_to_c_char("inigo-rs"),
+                runtime: null(),
                 egress_url: null(),
                 gateway: null(),
                 disable_response_data: true,
@@ -419,7 +419,8 @@ impl Plugin for Middleware {
                     service: str_to_c_char(&init.config.service),
                     token: str_to_c_char(&info.token.as_str()),
                     schema: null(),
-                    introspection: null(),
+                    name: str_to_c_char("inigo-rs"),
+                    runtime: null(),
                     ingest: null(),
                     gateway: middleware.handler as *const usize,
                     disable_response_data: true,
