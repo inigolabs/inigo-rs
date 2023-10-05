@@ -186,13 +186,13 @@ impl Inigo {
         );
 
         if !resp.is_null() {
-            let res_resp = unsafe { CString::from_raw(resp).to_bytes()[..*resp_len].to_owned() };
+            let res_resp = from_raw(resp, *resp_len);
             DISPOSE_HANDLE(*processed);
             return serde_json::from_slice(&res_resp).unwrap();
         }
 
         if !req.is_null() {
-            let res_req = unsafe { CString::from_raw(req).to_bytes()[..*req_len].to_owned() };
+            let res_req = from_raw(req, *req_len);
             update_request(request, serde_json::from_slice(&res_req).unwrap());
         }
 
@@ -228,7 +228,7 @@ impl Inigo {
             return;
         }
 
-        let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
+        let res_out = from_raw(out, *out_len);
 
         DISPOSE_HANDLE(processed);
 
@@ -242,6 +242,13 @@ impl Inigo {
             resp.extensions.insert(field_name, field_value);
         }
     }
+}
+
+fn from_raw(ptr: *mut c_char, len: usize) -> &'static [u8] {
+    return unsafe {
+        let slice = std::slice::from_raw_parts_mut(ptr, len);
+        &*(slice as *mut [c_char] as *mut [u8])
+    };
 }
 
 fn count_response_fields(resp: &graphql::Response) -> HashMap<ByteString, usize> {
@@ -395,7 +402,7 @@ impl Plugin for Middleware {
         let mut result: Vec<GatewayInfo> = vec![];
 
         if *out_len > 0 {
-            let res_out = unsafe { CString::from_raw(out).to_bytes()[..*out_len].to_owned() };
+            let res_out = from_raw(out, *out_len);
             result = match serde_json::from_slice(&res_out) {
                 Ok(val) => val,
                 Err(err) => {
