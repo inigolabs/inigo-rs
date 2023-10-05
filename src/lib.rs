@@ -143,7 +143,7 @@ impl Inigo {
         };
     }
 
-    fn get_headers(headers: &HeaderMap<HeaderValue>) -> (CString, usize) {
+    fn get_headers(headers: &HeaderMap<HeaderValue>) -> String {
         let mut header_hashmap = HashMap::new();
         for (k, v) in headers {
             let k = k.as_str().to_owned();
@@ -151,11 +151,7 @@ impl Inigo {
             header_hashmap.entry(k).or_insert_with(Vec::new).push(v)
         }
 
-        let h = serde_json::to_string(&header_hashmap).unwrap();
-
-        let h_len = h.len();
-
-        return (CString::new(h).expect("CString::new failed"), h_len);
+        return serde_json::to_string(&header_hashmap).unwrap();
     }
 
     pub fn process_request(
@@ -170,12 +166,15 @@ impl Inigo {
         let req_src_len = req_src.len();
         let req_src_cstr = CString::new(req_src).expect("CString::new failed");
 
-        let (header, header_len) = Inigo::get_headers(headers);
+        let h = Inigo::get_headers(headers);
+
+        let header_len = h.len();
+        let header_cstr = CString::new(h).expect("CString::new failed");
 
         let mut processed = self.processed.lock().unwrap();
         *processed = PROCESS_REQUEST(
             self.handler,
-            header.as_ptr(),
+            header_cstr.as_ptr(),
             header_len,
             req_src_cstr.as_ptr(),
             req_src_len,
