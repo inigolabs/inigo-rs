@@ -427,7 +427,6 @@ impl Plugin for Middleware {
                     schema: null(),
                     name: str_to_c_char("inigo-rs"),
                     runtime: null(),
-                    ingest: null(),
                     gateway: middleware.handler as *const usize,
                     disable_response_data: true,
                 }),
