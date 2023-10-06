@@ -22,9 +22,9 @@ fn handle_responce(c: &mut Criterion) {
         egress_url: null(),
         service: null(),
         token: null(),
+        name: null(),
+        runtime: null(),
         schema,
-        introspection: null(),
-        ingest: null(),
         gateway: null(),
         disable_response_data: true,
     }));
