@@ -87,6 +87,8 @@ lazy_static! {
         unsafe { LIB.get(b"create_mock").unwrap() };
     static ref DISPOSE_HANDLE: Symbol<'static, FnDisposeHandle> =
         unsafe { LIB.get(b"disposeHandle").unwrap() };
+    static ref DISPOSE_MEMORY: Symbol<'static, FnDisposeMemory> =
+        unsafe { LIB.get(b"disposeMemory").unwrap() };
     static ref CHECK_LAST_ERROR: Symbol<'static, FnCheckLastError> =
         unsafe { LIB.get(b"check_lasterror").unwrap() };
     static ref PROCESS_RESPONSE: Symbol<'static, FnProcessResponse> =
@@ -114,6 +116,8 @@ type FnProcessResponse = extern "C" fn(
 type FnCheckLastError = extern "C" fn() -> *mut c_char;
 
 type FnDisposeHandle = extern "C" fn(handle: usize);
+
+type FnDisposeMemory = extern "C" fn(ptr: *mut c_char);
 
 type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
@@ -185,13 +189,15 @@ impl Inigo {
         );
 
         if !resp.is_null() {
-            let res_resp = from_raw(resp, *resp_len);
+            let res_resp = from_raw(resp, *resp_len).to_owned();
             DISPOSE_HANDLE(*processed);
+            DISPOSE_MEMORY(resp);
             return serde_json::from_slice(&res_resp).unwrap();
         }
 
         if !req.is_null() {
-            let res_req = from_raw(req, *req_len);
+            let res_req = from_raw(req, *req_len).to_owned();
+            DISPOSE_MEMORY(req);
             update_request(request, serde_json::from_slice(&res_req).unwrap());
         }
 
@@ -227,9 +233,10 @@ impl Inigo {
             return;
         }
 
-        let res_out = from_raw(out, *out_len);
+        let res_out = from_raw(out, *out_len).to_owned();
 
         DISPOSE_HANDLE(processed);
+        DISPOSE_MEMORY(out);
 
         let result: graphql::Response = serde_json::from_slice(&res_out).unwrap();
 
@@ -401,7 +408,8 @@ impl Plugin for Middleware {
         let mut result: Vec<GatewayInfo> = vec![];
 
         if *out_len > 0 {
-            let res_out = from_raw(out, *out_len);
+            let res_out = from_raw(out, *out_len).to_owned();
+            DISPOSE_MEMORY(out);
             result = match serde_json::from_slice(&res_out) {
                 Ok(val) => val,
                 Err(err) => {
