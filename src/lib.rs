@@ -208,6 +208,11 @@ impl Inigo {
     }
 
     pub fn process_response(&self, resp: &mut graphql::Response) {
+        let processed = self.processed.lock().unwrap().clone();
+        if processed == 0 {
+            return;
+        }
+
         let v = serde_json::to_value(&ResponseWrapper {
             errors: resp.errors.clone(),
             response_size: 0,
@@ -220,8 +225,6 @@ impl Inigo {
         let input = CString::new(v).expect("CString::new failed");
 
         let (out, out_len) = (null_mut(), &mut 0);
-
-        let processed = self.processed.lock().unwrap().clone();
 
         PROCESS_RESPONSE(
             self.handler,
