@@ -23,9 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use anyhow::{anyhow, Result};
-use jsonpath::Selector;
-use serde_json::Value;
+use anyhow::Result;
+use apollo_router::graphql;
+use serde::Deserialize;
 use sha2::Digest;
 use sha2::Sha256;
 use std::env;
@@ -37,6 +37,7 @@ pub struct InigoRegistry {
     endpoint: String,
     key: String,
     file_name: String,
+    version: u32,
 }
 
 pub struct InigoRegistryConfig {
@@ -120,17 +121,18 @@ impl InigoRegistry {
 
         // Throw if endpoint is empty
         if endpoint.is_empty() {
-            return Err(anyhow!("environment variable INIGO_SERVICE_URL not found",));
+            println!("Environment variable INIGO_SERVICE_URL not found");
+            return Ok(());
         }
 
         // Throw if key is empty
         if key.is_empty() {
-            return Err(anyhow!(
-                "environment variable INIGO_SERVICE_TOKEN not found"
-            ));
+            println!("Environment variable INIGO_SERVICE_TOKEN not found");
+            return Ok(());
         }
 
-        let file_name = "supergraph-schema.graphql".to_string();
+        let file_name = get_schema_path();
+        println!("Following schema will be wached: {}", file_name.as_str());
         env::set_var("APOLLO_ROUTER_SUPERGRAPH_PATH", file_name.clone());
         env::set_var("APOLLO_ROUTER_HOT_RELOAD", "true");
 
@@ -138,16 +140,13 @@ impl InigoRegistry {
             endpoint,
             key,
             file_name,
+            version: 0,
         };
-
         match registry.initial_supergraph() {
             Ok(_) => {
                 println!("Successfully fetched and saved supergraph from GraphQL Inigo");
             }
-            Err(e) => {
-                eprintln!("{}", e.as_str());
-                // std::process::exit(1);
-            }
+            Err(e) => eprintln!("Could not get supergraph schema from registry: {}", e),
         }
 
         thread::spawn(move || loop {
@@ -158,7 +157,7 @@ impl InigoRegistry {
         Ok(())
     }
 
-    fn fetch_supergraph(&mut self) -> Result<Option<String>, String> {
+    fn fetch_supergraph(&mut self) -> Result<Option<String>, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::builder()
             .build()
             .map_err(|err| err.to_string())?;
@@ -167,11 +166,10 @@ impl InigoRegistry {
         headers.insert("Authorization", self.key.parse().unwrap());
         headers.insert("Content-Type", "application/json".parse().unwrap());
 
-        //
         let resp = client
             .post(self.endpoint.as_str())
             .headers(headers)
-            .body("{\"query\":\"query composedSchema { gatewayInfo { composedSchema }}\"}")
+            .body(format!("{{\"query\":\"query FetchFederatedSchema {{registry {{ federatedSchema(afterVersion: {}) {{ status version schema      }}}}}}\"}}",self.version))
             .send()
             .map_err(|e| e.to_string())?;
 
@@ -179,19 +177,32 @@ impl InigoRegistry {
             return Ok(None);
         }
 
-        let json: Value = serde_json::from_str(resp.text().unwrap().as_str()).unwrap();
-
-        let selector = Selector::new("$.data.gatewayInfo.composedSchema").unwrap();
-
-        let schema: Vec<&str> = selector.find(&json).map(|t| t.as_str().unwrap()).collect();
-        if schema.len() == 0 {
-            return Ok(None);
+        let response: FederatedSchemaResponse = serde_json::from_str(resp.text()?.as_str())?;
+        if response.errors.len() > 0 {
+            return Err(response
+                .errors
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<&str>>()
+                .join(",")
+                .into())
+            .into();
         }
 
-        Ok(Some(schema[0].to_string()))
+        let registry = response.data.unwrap().registry;
+        match registry.federated_schema.status.as_str() {
+            "unchanged" => Ok(None),
+            "missing" => Err("schema is not available in the registry".into()),
+            "updated" => {
+                self.version = registry.federated_schema.version;
+                return Ok(registry.federated_schema.schema);
+            }
+
+            _ => Err("unknown status".into()),
+        }
     }
 
-    fn initial_supergraph(&mut self) -> Result<(), String> {
+    fn initial_supergraph(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let resp = self.fetch_supergraph()?;
 
         match resp {
@@ -202,7 +213,7 @@ impl InigoRegistry {
                     .map_err(|e| e.to_string())?;
             }
             None => {
-                return Err("Failed to fetch supergraph".to_string());
+                return Err("Failed to fetch supergraph".into());
             }
         }
 
@@ -231,8 +242,50 @@ impl InigoRegistry {
     }
 }
 
+#[derive(Deserialize, Debug, Clone)]
+struct FederatedSchemaResponse {
+    data: Option<Registry>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    errors: Vec<graphql::Error>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct Registry {
+    registry: FederatedSchema,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct FederatedSchema {
+    #[serde(rename = "federatedSchema")]
+    federated_schema: Schema,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct Schema {
+    status: String,
+    schema: Option<String>,
+    version: u32,
+}
+
 fn hash(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:X}", hasher.finalize())
+}
+
+fn get_schema_path() -> String {
+    let mut path = "supergraph-schema.graphql".to_string();
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match &arg[..] {
+            "-s" | "--supergraph" => {
+                if let Some(arg_config) = args.next() {
+                    path = arg_config;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return path;
 }

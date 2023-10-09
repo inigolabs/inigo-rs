@@ -1,11 +1,10 @@
-use anyhow::Result;
 use apollo_router::register_plugin;
 use inigo_rs::registry::InigoRegistry;
 use inigo_rs::Middleware;
 
 register_plugin!("inigo", "middleware", Middleware);
 
-fn main() -> Result<()> {
+fn main() {
     // Initialize the Inigo Registry and start the Apollo Router
     match InigoRegistry::new(None).and(apollo_router::main()) {
         Ok(_) => {}
@@ -14,5 +13,4 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     }
-    apollo_router::main()
 }

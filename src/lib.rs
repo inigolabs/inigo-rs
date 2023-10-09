@@ -397,7 +397,7 @@ impl Plugin for Middleware {
             enabled: true,
         };
 
-        let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
+        let err = unsafe { std::ffi::CStr::from_ptr(CHECK_LAST_ERROR()) };
 
         if !err.to_str().unwrap().is_empty() {
             Err(err.to_str().unwrap())?;
