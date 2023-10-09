@@ -81,7 +81,7 @@ lazy_static! {
     };
     static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
     static ref PROCESS_REQUEST: Symbol<'static, FnProcessRequest> =
-        unsafe { LIB.get(b"process_request").unwrap() };
+        unsafe { LIB.get(b"process_service_request").unwrap() };
     static ref CREATE: Symbol<'static, FnCreate> = unsafe { LIB.get(b"create").unwrap() };
     pub static ref CREATE_MOCK: Symbol<'static, FnCreate> =
         unsafe { LIB.get(b"create_mock").unwrap() };
@@ -95,12 +95,7 @@ lazy_static! {
         unsafe { LIB.get(b"process_response").unwrap() };
     static ref UPDATE_SCHEMA: Symbol<'static, FnUpdateSchema> =
         unsafe { LIB.get(b"update_schema").unwrap() };
-    static ref GATEWAY_INFO: Symbol<'static, FnGatewayInfo> =
-        unsafe { LIB.get(b"gateway_info").unwrap() };
 }
-
-type FnGatewayInfo =
-    extern "C" fn(handle_ptr: usize, output: &*mut c_char, output_len: &mut usize) -> usize;
 
 type FnUpdateSchema = extern "C" fn(handle_ptr: usize, input: *mut c_char, input_len: usize);
 
@@ -123,6 +118,8 @@ type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
 type FnProcessRequest = extern "C" fn(
     handle_ptr: usize,
+    subgraph_name: *const c_char,
+    subgraph_name_len: usize,
     header: *const c_char,
     header_len: usize,
     input: *const c_char,
@@ -160,6 +157,7 @@ impl Inigo {
 
     pub fn process_request(
         &self,
+        name: &str,
         request: &mut graphql::Request,
         headers: &HeaderMap<HeaderValue>,
     ) -> Option<graphql::Response> {
@@ -175,9 +173,14 @@ impl Inigo {
         let header_len = h.len();
         let header_cstr = CString::new(h).expect("CString::new failed");
 
+        let name_len = name.len();
+        let name_cstr = CString::new(name).expect("CString::new failed");
+
         let mut processed = self.processed.lock().unwrap();
         *processed = PROCESS_REQUEST(
             self.handler,
+            name_cstr.as_ptr(),
+            name_len,
             header_cstr.as_ptr(),
             header_len,
             req_src_cstr.as_ptr(),
@@ -325,7 +328,6 @@ struct ResponseWrapper {
 pub struct Middleware {
     handler: usize,
     enabled: bool,
-    sidecars: HashMap<String, usize>,
 }
 
 impl Clone for Middleware {
@@ -333,7 +335,6 @@ impl Clone for Middleware {
         Middleware {
             handler: self.handler,
             enabled: self.enabled,
-            sidecars: self.sidecars.clone(),
         }
     }
 }
@@ -360,7 +361,6 @@ impl Plugin for Middleware {
             return Ok(Middleware {
                 handler: 0,
                 enabled: false,
-                sidecars: Default::default(),
             });
         }
 
@@ -379,7 +379,7 @@ impl Plugin for Middleware {
             return Ok(middleware);
         }
 
-        let mut middleware = Middleware {
+        let middleware = Middleware {
             handler: CREATE(&SidecarConfig {
                 debug: false,
                 service: str_to_c_char(&init.config.service),
@@ -392,59 +392,12 @@ impl Plugin for Middleware {
                 disable_response_data: true,
             }),
             enabled: true,
-            sidecars: HashMap::new(),
         };
 
         let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
 
         if !err.to_str().unwrap().is_empty() {
             Err(err.to_str().unwrap())?;
-        }
-
-        let (out, out_len) = (null_mut(), &mut 0);
-
-        GATEWAY_INFO(middleware.handler, &out, out_len);
-
-        let mut result: Vec<GatewayInfo> = vec![];
-
-        if *out_len > 0 {
-            let res_out = from_raw(out, *out_len).to_owned();
-            DISPOSE_MEMORY(out);
-            result = match serde_json::from_slice(&res_out) {
-                Ok(val) => val,
-                Err(err) => {
-                    let resp: graphql::Response = serde_json::from_slice(&res_out).unwrap();
-
-                    for error in resp.errors.iter() {
-                        return Err(format!("{}", error))?;
-                    }
-
-                    return Err(BoxError::try_from(err).unwrap());
-                }
-            };
-        }
-
-        for info in result.iter() {
-            middleware.sidecars.insert(
-                info.name.to_owned(),
-                CREATE(&SidecarConfig {
-                    debug: false,
-                    egress_url: null(),
-                    service: str_to_c_char(&init.config.service),
-                    token: str_to_c_char(&info.token.as_str()),
-                    schema: null(),
-                    name: str_to_c_char("inigo-rs"),
-                    runtime: null(),
-                    gateway: middleware.handler as *const usize,
-                    disable_response_data: true,
-                }),
-            );
-
-            let err = unsafe { CString::from_raw(CHECK_LAST_ERROR()) };
-
-            if !err.to_str().unwrap().is_empty() {
-                Err(err.to_str().unwrap())?;
-            }
         }
 
         *singleton = Some(middleware.clone());
@@ -462,16 +415,14 @@ impl Plugin for Middleware {
             return service;
         }
 
-        if !self.sidecars.contains_key(_name) {
-            return service;
-        }
+        let inigo = Inigo::new(self.handler.clone());
 
-        let inigo = Inigo::new(self.sidecars.get(_name).unwrap().clone());
+        let name = _name.to_owned();
 
         let process_req_fn = |i: Inigo| {
             move |mut req: subgraph::Request| {
                 let headers = &req.subgraph_request.headers().clone();
-                let resp = i.process_request(req.subgraph_request.body_mut(), headers);
+                let resp = i.process_request(&name, req.subgraph_request.body_mut(), headers);
 
                 let traceparent = req.subgraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
@@ -523,7 +474,7 @@ impl Plugin for Middleware {
         let process_req_fn = |i: Inigo| {
             move |mut req: supergraph::Request| {
                 let headers = &req.supergraph_request.headers().clone();
-                let resp = i.process_request(req.supergraph_request.body_mut(), headers);
+                let resp = i.process_request("", req.supergraph_request.body_mut(), headers);
 
                 let traceparent = req.supergraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
@@ -613,14 +564,6 @@ fn update_request(req: &mut graphql::Request, result: graphql::Request) {
     req.query = result.query;
     req.variables = result.variables;
     req.extensions = result.extensions;
-}
-
-#[derive(Deserialize, Clone)]
-struct GatewayInfo {
-    #[serde(skip_serializing_if = "String::is_empty", default)]
-    name: String,
-    #[serde(skip_serializing_if = "String::is_empty", default)]
-    token: String,
 }
 
 fn str_to_c_char(val: &str) -> *const c_char {

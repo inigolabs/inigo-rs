@@ -48,7 +48,7 @@ fn handle_responce(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(payload.len() as u64));
     group.bench_function("handle_response", |b| {
         b.iter(|| {
-            i.process_request(req, &HeaderMap::new());
+            i.process_request("", req, &HeaderMap::new());
             i.process_response(&mut resp)
         })
     });
@@ -61,6 +61,6 @@ fn handle_responce(c: &mut Criterion) {
 criterion_main!(benches);
 criterion_group! {
    name = benches;
-   config = Criterion::default().measurement_time(Duration::from_secs(60));
+   config = Criterion::default().measurement_time(Duration::from_secs(75));
    targets = handle_responce
 }
