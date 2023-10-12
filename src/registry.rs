@@ -44,7 +44,7 @@ pub struct InigoRegistryConfig {
     endpoint: Option<String>,
     key: Option<String>,
     poll_interval: Option<u64>,
-    enabled: Option<bool>,
+    disabled: Option<bool>,
 }
 
 impl InigoRegistry {
@@ -53,7 +53,7 @@ impl InigoRegistry {
             endpoint: None,
             key: None,
             poll_interval: None,
-            enabled: None,
+            disabled: None,
         };
 
         // Pass values from user's config
@@ -61,21 +61,21 @@ impl InigoRegistry {
             config.endpoint = user_config.endpoint;
             config.key = user_config.key;
             config.poll_interval = user_config.poll_interval;
-            config.enabled = user_config.enabled;
+            config.disabled = user_config.disabled;
         }
 
         // Pass values from environment variables if they are not set in the user's config
-        if config.enabled.is_none() {
-            if let Ok(enabled) = env::var("INIGO_REGISTRY_ENABLED") {
-                config.enabled = Some(
+        if config.disabled.is_none() {
+            if let Ok(enabled) = env::var("INIGO_REGISTRY_DISABLED") {
+                config.disabled = Some(
                     enabled
                         .parse()
-                        .expect("failed to parse INIGO_REGISTRY_ENABLED"),
+                        .expect("failed to parse INIGO_REGISTRY_DISABLED"),
                 );
             }
         }
 
-        if config.enabled.is_none() || !config.enabled.unwrap() {
+        if config.disabled.is_some() && config.disabled.unwrap() {
             println!("You're not using GraphQL Inigo as the source of schema.");
             return Ok(());
         }
@@ -84,6 +84,10 @@ impl InigoRegistry {
             if let Ok(endpoint) = env::var("INIGO_SERVICE_URL") {
                 config.endpoint = Some(endpoint);
             }
+        }
+
+        if config.endpoint.is_none() {
+            config.endpoint = Some("https://app.inigo.io/agent/query".to_string());
         }
 
         if config.key.is_none() {
@@ -110,24 +114,17 @@ impl InigoRegistry {
             None => 30,
         };
 
-        // In case of an endpoint and an key being empty, we don't start the polling and skip the registry
-        if endpoint.is_empty() && key.is_empty() {
-            println!("You're not using GraphQL Inigo as the source of schema.");
-            println!(
-                "Reason: could not find INIGO_SERVICE_TOKEN and INIGO_SERVICE_URL environment variables.",
-            );
-            return Ok(());
-        }
-
         // Throw if endpoint is empty
         if endpoint.is_empty() {
-            println!("Environment variable INIGO_SERVICE_URL not found");
+            println!("You're not using GraphQL Inigo as the source of schema.");
+            println!("Reason: service url is empty.",);
             return Ok(());
         }
 
         // Throw if key is empty
         if key.is_empty() {
-            println!("Environment variable INIGO_SERVICE_TOKEN not found");
+            println!("You're not using GraphQL Inigo as the source of schema.");
+            println!("Reason: could not find INIGO_SERVICE_TOKEN environment variables.",);
             return Ok(());
         }
 

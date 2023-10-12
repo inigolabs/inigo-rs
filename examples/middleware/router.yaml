@@ -16,6 +16,7 @@ cors:
   origins: []
 plugins:
   inigo.middleware:
+    subgraphs_analytics: false
     jwt_header: "authorization"
-    service: "http://localhost:30018/query"
-    token: "your-inigo-service-token"
+    token: "${env.INIGO_SERVICE_TOKEN}"
+

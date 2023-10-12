@@ -61,6 +61,6 @@ fn handle_responce(c: &mut Criterion) {
 criterion_main!(benches);
 criterion_group! {
    name = benches;
-   config = Criterion::default().measurement_time(Duration::from_secs(75));
+   config = Criterion::default().measurement_time(Duration::from_secs(80));
    targets = handle_responce
 }
