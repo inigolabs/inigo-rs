@@ -331,6 +331,7 @@ struct ResponseWrapper {
 pub struct Middleware {
     handler: usize,
     enabled: bool,
+    subgraphs_analytics: bool,
 }
 
 impl Clone for Middleware {
@@ -338,6 +339,7 @@ impl Clone for Middleware {
         Middleware {
             handler: self.handler,
             enabled: self.enabled,
+            subgraphs_analytics: self.subgraphs_analytics,
         }
     }
 }
@@ -353,6 +355,8 @@ pub struct Conf {
     #[serde(default)]
     service: String,
     token: String,
+    #[serde(default = "default_as_true")]
+    subgraphs_analytics: bool,
 }
 
 #[async_trait::async_trait]
@@ -364,6 +368,7 @@ impl Plugin for Middleware {
             return Ok(Middleware {
                 handler: 0,
                 enabled: false,
+                subgraphs_analytics: false,
             });
         }
 
@@ -394,7 +399,8 @@ impl Plugin for Middleware {
                 gateway: null(),
                 disable_response_data: true,
             }),
-            enabled: true,
+            enabled: init.config.enabled,
+            subgraphs_analytics: init.config.subgraphs_analytics,
         };
 
         let err = unsafe { std::ffi::CStr::from_ptr(CHECK_LAST_ERROR()) };
@@ -414,7 +420,7 @@ impl Plugin for Middleware {
     // }
 
     fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
-        if !self.enabled {
+        if !self.enabled || !self.subgraphs_analytics {
             return service;
         }
 
