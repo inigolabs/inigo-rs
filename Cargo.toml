@@ -28,6 +28,7 @@ jsonpath = "0.1.1"
 serde_json_bytes = { version = "0.2.1", features = ["preserve_order"] }
 futures = "0.3.28"
 hyper = "0.14.27"
+uuid = {version = "1.4.1", features = ["v4", "fast-rng", "macro-diagnostics"]}
 
 [dev-dependencies]
 criterion = "0.5.1"

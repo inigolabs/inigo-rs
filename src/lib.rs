@@ -10,7 +10,7 @@ use std::ops::ControlFlow;
 use std::os::raw::c_char;
 use std::process;
 use std::ptr::{null, null_mut};
-use std::str;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use apollo_router::graphql;
@@ -19,7 +19,7 @@ use apollo_router::plugin::{Plugin, PluginInit};
 use apollo_router::services::router;
 use apollo_router::services::{subgraph, supergraph};
 use futures::future::BoxFuture;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderName, HeaderValue};
 use libloading::{Library, Symbol};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -332,6 +332,7 @@ pub struct Middleware {
     handler: usize,
     enabled: bool,
     subgraphs_analytics: bool,
+    trace_header: String,
 }
 
 impl Clone for Middleware {
@@ -340,12 +341,17 @@ impl Clone for Middleware {
             handler: self.handler,
             enabled: self.enabled,
             subgraphs_analytics: self.subgraphs_analytics,
+            trace_header: self.trace_header.clone(),
         }
     }
 }
 
 fn default_as_true() -> bool {
     true
+}
+
+fn default_trace_header() -> String {
+    "Inigo-Router-TraceID".to_string()
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -357,6 +363,8 @@ pub struct Conf {
     token: String,
     #[serde(default = "default_as_true")]
     subgraphs_analytics: bool,
+    #[serde(default = "default_trace_header")]
+    trace_header: String,
 }
 
 #[async_trait::async_trait]
@@ -369,6 +377,7 @@ impl Plugin for Middleware {
                 handler: 0,
                 enabled: false,
                 subgraphs_analytics: false,
+                trace_header: init.config.trace_header,
             });
         }
 
@@ -401,6 +410,7 @@ impl Plugin for Middleware {
             }),
             enabled: init.config.enabled,
             subgraphs_analytics: init.config.subgraphs_analytics,
+            trace_header: init.config.trace_header,
         };
 
         let err = unsafe { std::ffi::CStr::from_ptr(CHECK_LAST_ERROR()) };
@@ -478,10 +488,17 @@ impl Plugin for Middleware {
             return service;
         }
 
+        let trace = self.trace_header.clone();
+
         let inigo = Inigo::new(self.handler.clone());
 
         let process_req_fn = |i: Inigo| {
             move |mut req: supergraph::Request| {
+                req.supergraph_request
+                    .headers_mut()
+                    .entry(HeaderName::from_str(&trace).unwrap())
+                    .or_insert(HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).unwrap());
+
                 let headers = &req.supergraph_request.headers().clone();
                 let resp = i.process_request("", req.supergraph_request.body_mut(), headers);
 
