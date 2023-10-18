@@ -6,6 +6,7 @@ extern crate lazy_static;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::CString;
+use std::net::SocketAddr;
 use std::ops::ControlFlow;
 use std::os::raw::c_char;
 use std::process;
@@ -18,9 +19,12 @@ use apollo_router::layers::ServiceBuilderExt;
 use apollo_router::plugin::{Plugin, PluginInit};
 use apollo_router::services::router;
 use apollo_router::services::{subgraph, supergraph};
+use apollo_router::Endpoint;
+use apollo_router::ListenAddr;
 use futures::future::BoxFuture;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use libloading::{Library, Symbol};
+use multimap::MultiMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json_bytes::{ByteString, Value};
@@ -543,6 +547,76 @@ impl Plugin for Middleware {
             .map_response(process_resp_fn(inigo))
             .service(service)
             .boxed()
+    }
+
+    fn web_endpoints(&self) -> MultiMap<ListenAddr, Endpoint> {
+        let mut endpoints = MultiMap::new();
+        let pass_through_url = env::var_os("INIGO_PASS_THROUGH_URL");
+        let listen_addr = env::var_os("APOLLO_ROUTER_LISTEN_ADDRESS");
+        if pass_through_url.is_none() || listen_addr.is_none() {
+            return endpoints;
+        }
+
+        let web_endpoint = Endpoint::from_router_service(
+            "/*key".to_string(),
+            ProxyService {
+                url: pass_through_url
+                    .unwrap()
+                    .into_string()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+            }
+            .boxed(),
+        );
+
+        let socket_addr: SocketAddr = listen_addr.unwrap().into_string().unwrap().parse().unwrap();
+        endpoints.insert(ListenAddr::from(socket_addr), web_endpoint);
+        endpoints
+    }
+}
+
+struct ProxyService {
+    url: hyper::Uri,
+}
+
+impl Service<router::Request> for ProxyService {
+    type Response = router::Response;
+
+    type Error = BoxError;
+
+    type Future = BoxFuture<'static, router::ServiceResult>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, mut req: router::Request) -> Self::Future {
+        let scheme = self.url.scheme().unwrap().clone();
+        let authority = self.url.authority().unwrap().clone();
+
+        let fut = async move {
+            let client = hyper::Client::new();
+
+            let uri = req.router_request.uri();
+            let new_uri = http::Uri::builder()
+                .scheme(scheme.as_str())
+                .authority(authority.as_str())
+                .path_and_query(uri.path_and_query().unwrap().clone().as_str())
+                .build()
+                .unwrap();
+
+            *req.router_request.uri_mut() = new_uri;
+
+            let resp = client.request(req.router_request).await.unwrap();
+
+            Ok(router::Response::from(resp))
+        };
+
+        Box::pin(fut)
     }
 }
 
