@@ -44,7 +44,7 @@ pub struct InigoRegistryConfig {
     endpoint: Option<String>,
     key: Option<String>,
     poll_interval: Option<u64>,
-    disabled: Option<bool>,
+    enabled: Option<bool>,
 }
 
 impl InigoRegistry {
@@ -53,7 +53,7 @@ impl InigoRegistry {
             endpoint: None,
             key: None,
             poll_interval: None,
-            disabled: None,
+            enabled: None,
         };
 
         // Pass values from user's config
@@ -61,27 +61,30 @@ impl InigoRegistry {
             config.endpoint = user_config.endpoint;
             config.key = user_config.key;
             config.poll_interval = user_config.poll_interval;
-            config.disabled = user_config.disabled;
+            config.enabled = user_config.enabled;
         }
 
         // Pass values from environment variables if they are not set in the user's config
-        if config.disabled.is_none() {
-            if let Ok(enabled) = env::var("INIGO_REGISTRY_DISABLED") {
-                config.disabled = Some(
+        if config.enabled.is_none() {
+            // set registry to be enabled by default
+            config.enabled = Some(true);
+
+            if let Ok(enabled) = env::var("INIGO_REGISTRY_ENABLED") {
+                config.enabled = Some(
                     enabled
                         .parse()
-                        .expect("failed to parse INIGO_REGISTRY_DISABLED"),
+                        .expect("failed to parse INIGO_REGISTRY_ENABLED"),
                 );
             }
         }
 
-        if config.disabled.is_some() && config.disabled.unwrap() {
+        if !config.enabled.unwrap() {
             println!("You're not using GraphQL Inigo as the source of schema.");
             return Ok(());
         }
 
         if config.endpoint.is_none() {
-            if let Ok(endpoint) = env::var("INIGO_SERVICE_URL") {
+            if let Ok(endpoint) = env::var("INIGO_REGISTRY_URL") {
                 config.endpoint = Some(endpoint);
             }
         }
