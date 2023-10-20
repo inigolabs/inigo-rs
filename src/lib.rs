@@ -450,7 +450,7 @@ impl Plugin for Middleware {
                 let traceparent = req.subgraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
-                    req.subgraph_request.headers_mut().append(
+                    req.subgraph_request.headers_mut().insert(
                         "traceparent",
                         HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
                     );
@@ -509,7 +509,7 @@ impl Plugin for Middleware {
                 let traceparent = req.supergraph_request.body().extensions.get("traceparent");
                 if traceparent.is_some() {
                     let traceparent_val = traceparent.unwrap().clone();
-                    req.supergraph_request.headers_mut().append(
+                    req.supergraph_request.headers_mut().insert(
                         "traceparent",
                         HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
                     );
