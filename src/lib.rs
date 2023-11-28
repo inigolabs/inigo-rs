@@ -1,3 +1,4 @@
+pub mod axum;
 pub mod registry;
 
 #[macro_use]
