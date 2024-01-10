@@ -181,8 +181,7 @@ impl Inigo {
         let name_len = name.len();
         let name_cstr = CString::new(name).expect("CString::new failed");
 
-        let mut processed = self.processed.lock().unwrap();
-        *processed = PROCESS_REQUEST(
+        let processed = PROCESS_REQUEST(
             self.handler,
             name_cstr.as_ptr(),
             name_len,
@@ -196,9 +195,11 @@ impl Inigo {
             req_len,
         );
 
+        self.set_processed(processed);
+
         if !resp.is_null() {
             let res_resp = from_raw(resp, *resp_len).to_owned();
-            DISPOSE_HANDLE(*processed);
+            DISPOSE_HANDLE(processed);
             DISPOSE_MEMORY(resp);
             return serde_json::from_slice(&res_resp).unwrap();
         }
@@ -210,6 +211,11 @@ impl Inigo {
         }
 
         return None;
+    }
+
+    fn set_processed(&self, val: usize) {
+        let mut processed = self.processed.lock().unwrap();
+        *processed = val;
     }
 
     pub fn process_response(&self, resp: &mut graphql::Response) {
@@ -429,10 +435,202 @@ impl Plugin for Middleware {
         Ok(middleware)
     }
 
-    // NOTE: Uncomment it to enable RouterService
-    // fn router_service(&self, service: router::BoxService) -> router::BoxService {
-    //     RouterService::new(service).boxed()
-    // }
+    fn router_service(&self, service: router::BoxService) -> router::BoxService {
+        let handler = self.handler.clone();
+        let trace = self.trace_header.clone();
+
+        async fn process_get(
+            handler: usize,
+            mut request: router::Request,
+        ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
+            let g_req = graphql::Request::from_urlencoded_query(
+                request.router_request.uri().query().unwrap().to_string(),
+            );
+
+            let req_src: String = serde_json::to_string(&g_req.unwrap()).unwrap();
+
+            let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
+
+            let req_src_len = req_src.len();
+            let req_src_cstr = CString::new(req_src.clone()).expect("CString::new failed");
+
+            let h = Inigo::get_headers(request.router_request.headers());
+
+            let header_len = h.len();
+            let header_cstr = CString::new(h).expect("CString::new failed");
+
+            let processed = PROCESS_REQUEST(
+                handler,
+                null(),
+                0,
+                header_cstr.as_ptr(),
+                header_len,
+                req_src_cstr.as_ptr(),
+                req_src_len,
+                &resp,
+                resp_len,
+                &req,
+                req_len,
+            );
+
+            if !resp.is_null() {
+                let res_resp = from_raw(resp, *resp_len).to_owned();
+                DISPOSE_HANDLE(processed);
+                DISPOSE_MEMORY(resp);
+
+                return Ok(ControlFlow::Break(router::Response::from(
+                    http::Response::builder()
+                        .body(hyper::Body::from(res_resp))
+                        .unwrap(),
+                )));
+            }
+
+            let _ = request.context.insert("processed", processed);
+
+            if !req.is_null() {
+                let res_req = from_raw(req, *req_len).to_owned();
+                DISPOSE_MEMORY(req);
+
+                let g_req: graphql::Request = serde_json::from_slice(&res_req).unwrap();
+
+                // parse will fail bc base is missing, adding localhost here to bypass RelativeUrlWithoutBase error
+                let original_url: url::Url = ("http://localhost".to_owned()
+                    + request.router_request.uri().to_string().as_ref())
+                .parse()?;
+
+                let query = original_url
+                    .query_pairs()
+                    .filter(|(name, _)| name.ne("query") && name.ne("extensions"));
+                let mut new_url = original_url.clone();
+                new_url.query_pairs_mut().clear().extend_pairs(query);
+
+                if g_req.query.is_some() {
+                    new_url
+                        .query_pairs_mut()
+                        .extend_pairs([("query", &g_req.query.unwrap())]);
+                }
+
+                if !g_req.extensions.is_empty() {
+                    new_url.query_pairs_mut().extend_pairs([(
+                        "extensions",
+                        serde_json::to_string(&g_req.extensions).unwrap(),
+                    )]);
+                }
+
+                if !g_req.variables.is_empty() {
+                    new_url.query_pairs_mut().extend_pairs([(
+                        "variables",
+                        serde_json::to_string(&g_req.variables).unwrap(),
+                    )]);
+                }
+
+                if g_req.operation_name.is_some() {
+                    new_url
+                        .query_pairs_mut()
+                        .extend_pairs([("operationName", &g_req.operation_name.unwrap())]);
+                }
+
+                *request.router_request.uri_mut() = new_url
+                    .to_string()
+                    .strip_prefix("http://localhost")
+                    .unwrap()
+                    .parse()?;
+
+                return Ok(ControlFlow::Continue(request));
+            }
+
+            Ok(ControlFlow::Continue(request))
+        }
+
+        async fn process_post(
+            handler: usize,
+            mut request: router::Request,
+        ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
+            let req_src = hyper::body::to_bytes(request.router_request.body_mut()).await?;
+
+            let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
+
+            let req_src_len = req_src.len();
+            let req_src_cstr = CString::new(req_src.clone()).expect("CString::new failed");
+
+            let h = Inigo::get_headers(request.router_request.headers());
+
+            let header_len = h.len();
+            let header_cstr = CString::new(h).expect("CString::new failed");
+
+            let processed = PROCESS_REQUEST(
+                handler,
+                null(),
+                0,
+                header_cstr.as_ptr(),
+                header_len,
+                req_src_cstr.as_ptr(),
+                req_src_len,
+                &resp,
+                resp_len,
+                &req,
+                req_len,
+            );
+
+            if !resp.is_null() {
+                let res_resp = from_raw(resp, *resp_len).to_owned();
+                DISPOSE_HANDLE(processed);
+                DISPOSE_MEMORY(resp);
+
+                return Ok(ControlFlow::Break(router::Response::from(
+                    http::Response::builder()
+                        .body(hyper::Body::from(res_resp))
+                        .unwrap(),
+                )));
+            }
+
+            let _ = request.context.insert("processed", processed);
+
+            if !req.is_null() {
+                let res_req = from_raw(req, *req_len).to_owned();
+                DISPOSE_MEMORY(req);
+
+                *request.router_request.body_mut() = hyper::Body::from(res_req);
+
+                return Ok(ControlFlow::Continue(request));
+            }
+
+            *request.router_request.body_mut() = hyper::Body::from(req_src);
+
+            Ok(ControlFlow::Continue(request))
+        }
+
+        ServiceBuilder::new()
+            .oneshot_checkpoint_async(move |mut request: router::Request| {
+                let trace = trace.clone();
+
+                async move {
+                    let method = request.router_request.method().clone();
+
+                    request
+                        .router_request
+                        .headers_mut()
+                        .entry(HeaderName::from_str(&trace).unwrap())
+                        .or_insert(
+                            HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).unwrap(),
+                        );
+
+                    // Handle GET request
+                    if method == http::Method::GET {
+                        return process_get(handler, request).await;
+                    }
+
+                    // Handle POST request
+                    if method == http::Method::POST {
+                        return process_post(handler, request).await;
+                    }
+
+                    Ok(ControlFlow::Continue(request))
+                }
+            })
+            .service(service)
+            .boxed()
+    }
 
     fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
         if !self.enabled || !self.subgraphs_analytics {
@@ -493,50 +691,26 @@ impl Plugin for Middleware {
             return service;
         }
 
-        let trace = self.trace_header.clone();
-
         let inigo = Inigo::new(self.handler.clone());
 
-        let process_req_fn = |i: Inigo| {
-            move |mut req: supergraph::Request| {
-                req.supergraph_request
-                    .headers_mut()
-                    .entry(HeaderName::from_str(&trace).unwrap())
-                    .or_insert(HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).unwrap());
-
-                let headers = &req.supergraph_request.headers().clone();
-                let resp = i.process_request("", req.supergraph_request.body_mut(), headers);
-
-                let traceparent = req.supergraph_request.body().extensions.get("traceparent");
-                if traceparent.is_some() {
-                    let traceparent_val = traceparent.unwrap().clone();
-                    req.supergraph_request.headers_mut().insert(
-                        "traceparent",
-                        HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
-                    );
-                }
-
-                if resp.is_none() {
-                    return Ok(ControlFlow::Continue(req));
-                }
-
-                let response = resp.unwrap();
-
-                return Ok(ControlFlow::Break(
-                    supergraph::Response::builder()
-                        .data(response.data.unwrap_or_default())
-                        .errors(response.errors)
-                        .extensions(response.extensions)
-                        .context(req.context)
-                        .build()
-                        .unwrap(),
-                ));
+        let process_req_fn = move |mut req: supergraph::Request| {
+            let traceparent = req.supergraph_request.body().extensions.get("traceparent");
+            if traceparent.is_some() {
+                let traceparent_val = traceparent.unwrap().clone();
+                req.supergraph_request.headers_mut().insert(
+                    "traceparent",
+                    HeaderValue::from_str(traceparent_val.as_str().unwrap()).unwrap(),
+                );
             }
+
+            return Ok(ControlFlow::Continue(req));
         };
 
         let process_resp_fn = |i: Inigo| {
             move |resp: supergraph::Response| {
+                let processed: usize = resp.context.get("processed").unwrap().unwrap_or_default();
                 return resp.map_stream(move |mut resp: graphql::Response| {
+                    i.set_processed(processed);
                     i.process_response(&mut resp);
                     return resp;
                 });
@@ -544,7 +718,7 @@ impl Plugin for Middleware {
         };
 
         ServiceBuilder::new()
-            .checkpoint(process_req_fn(inigo.clone()))
+            .checkpoint(process_req_fn)
             .map_response(process_resp_fn(inigo))
             .service(service)
             .boxed()
