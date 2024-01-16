@@ -371,6 +371,7 @@ pub struct Conf {
     enabled: bool,
     #[serde(default)]
     service: String,
+    #[serde(default)]
     token: String,
     #[serde(default = "default_as_true")]
     subgraphs_analytics: bool,
@@ -407,11 +408,18 @@ impl Plugin for Middleware {
             return Ok(middleware);
         }
 
+        let mut token = init.config.token;
+        if token.is_empty() {
+            if let Ok(key) = env::var("INIGO_SERVICE_TOKEN") {
+                token = key;
+            }
+        }
+
         let middleware = Middleware {
             handler: CREATE(&SidecarConfig {
                 debug: false,
                 service: str_to_c_char(&init.config.service),
-                token: str_to_c_char(&init.config.token),
+                token: str_to_c_char(&token),
                 schema: str_to_c_char(init.supergraph_sdl.as_str()),
                 name: str_to_c_char("inigo-rs"),
                 runtime: null(),
