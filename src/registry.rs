@@ -144,7 +144,10 @@ impl InigoRegistry {
         };
         match registry.initial_supergraph() {
             Ok(_) => {
-                println!("Successfully fetched and saved supergraph from GraphQL Inigo");
+                println!(
+                    "Successfully fetched and saved supergraph v{} from GraphQL Inigo",
+                    registry.version,
+                );
             }
             Err(e) => eprintln!("Could not get supergraph schema from registry: {}", e),
         }
