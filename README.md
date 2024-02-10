@@ -4,26 +4,34 @@
   <img height="25" src="https://raw.githubusercontent.com/inigolabs/inigo-rs/master/docs/rust.svg">
 
   <p align="center">
-    GraphQL Middleware
+    GraphQL for Platform Teams
     <br />
-    <a href="https://docs.inigo.io"><strong>Explore the docs »</strong></a>
-    <br /> <br />
-    <a href="https://inigo.io">Homepage</a>
+    <a href="https://inigo.io">Home</a>
     ·
-    <a href="https://github.com/inigolabs/inigo-rs/tree/master/examples">View an example</a>
+    <a href="https://docs.inigo.io/">Docs</a>
     ·
-    <a href="https://github.com/inigolabs/inigo-rs/issues">Report Bug</a>
+    <a href="https://github.com/inigolabs/inigo-rs/issues">Issues</a>
+    ·
+    <a href="https://slack.inigo.io/">Slack</a>
   </p>
 </div>
 
----
+### Overview
+Gain instant monitoring and protection into GraphQL APIs. Unblock platform teams and accelerate GraphQL adoption.
+Inigo's platform integration offers GraphQL Security, Analytics, Rate-limiting, Access Control and more.  
 
-[Inigo](https://inigo.io) integration for [Apollo Router](https://www.apollographql.com/docs/router/customizations/native/)
+This package is the Inigo plugin for the Apollo Rust Router
 
-# Quickstart
+### Integration
 
-1. Register a plugin
+1. Import the Inigo library in your Cargo.toml
 
+```
+[dependencies]
+inigo-rs = "0.1.9"
+```
+
+2. Register the plugin
 ```rs
 use anyhow::Result;
 use apollo_router::register_plugin;
@@ -34,21 +42,22 @@ register_plugin!("inigo", "middleware", Middleware);
 fn main() -> Result<()> {
     apollo_router::main()
 }
-
 ```
 
-NOTE: Do not forget to import Inigo in your Cargo.toml
-
-```
-[dependencies]
-inigo-rs = "0.1.9"
-```
-
-2. Configure a plugin
-
+3. Configure the plugin
 ```yaml
 plugins:
   inigo.middleware:
-    jwt_header: "authorization"
     token: "your-inigo-service-token"
 ```
+
+### Documentation
+* [Docs](https://docs.inigo.io/)
+* [Integration](https://docs.inigo.io/product/agent_installation/ruby_on_rails)
+* [Example](https://github.com/inigolabs/inigo-rs/tree/master/examples)
+
+### Contributing
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+### License
+Distributed under the MIT License.
