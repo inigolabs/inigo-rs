@@ -1,5 +1,4 @@
 /target
-/Cargo.lock
 /examples/middleware/target/
 /examples/middleware/Cargo.lock
 /examples/axum/target/
