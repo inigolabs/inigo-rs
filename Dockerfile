@@ -9,7 +9,7 @@ ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN rustup component add rustfmt
 RUN cargo build --release
 
-FROM --platform=${TARGETPLATFORM:-linux/amd64} gcr.io/distroless/cc-debian12
+FROM --platform=${TARGETPLATFORM:-linux/amd64} ubuntu:latest
 
 LABEL org.opencontainers.image.source=https://github.com/inigolabs/inigo-rs/router
 
