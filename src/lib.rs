@@ -227,7 +227,8 @@ impl Inigo {
         let v = serde_json::to_value(&ResponseWrapper {
             errors: resp.errors.clone(),
             response_size: 0,
-            response_body_counts: count_response_fields(resp),
+            // disabled response fields counting
+            // response_body_counts: count_response_fields(resp),
         })
         .unwrap()
         .to_string();
@@ -274,6 +275,7 @@ fn from_raw(ptr: *mut c_char, len: usize) -> &'static [u8] {
     };
 }
 
+#[allow(dead_code)]
 fn count_response_fields(resp: &graphql::Response) -> HashMap<ByteString, usize> {
     let mut counts = HashMap::new();
     if resp.data.is_some() {
@@ -335,7 +337,7 @@ struct ResponseWrapper {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     errors: Vec<graphql::Error>,
     response_size: usize,
-    response_body_counts: HashMap<ByteString, usize>,
+    // response_body_counts: HashMap<ByteString, usize>,
 }
 
 #[derive(Debug)]
