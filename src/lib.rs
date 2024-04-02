@@ -4,7 +4,7 @@ pub mod registry;
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::env;
 use std::ffi::CString;
 use std::net::SocketAddr;
@@ -86,7 +86,7 @@ lazy_static! {
     };
     static ref SINGLETON: Mutex<Option<Middleware>> = Mutex::new(None);
     static ref PROCESS_REQUEST: Symbol<'static, FnProcessRequest> =
-        unsafe { LIB.get(b"process_service_request").unwrap() };
+        unsafe { LIB.get(b"process_service_request_v2").unwrap() };
     static ref CREATE: Symbol<'static, FnCreate> = unsafe { LIB.get(b"create").unwrap() };
     pub static ref CREATE_MOCK: Symbol<'static, FnCreate> =
         unsafe { LIB.get(b"create_mock").unwrap() };
@@ -133,12 +133,15 @@ type FnProcessRequest = extern "C" fn(
     resp_len: &mut usize,
     req: &*mut c_char,
     req_len: &mut usize,
+    analysis: &*mut c_char,
+    analysis_len: &mut usize,
 ) -> usize;
 
 #[derive(Clone)]
 pub struct Inigo {
     handler: usize,
     processed: Arc<Mutex<usize>>,
+    scalars: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Inigo {
@@ -146,6 +149,7 @@ impl Inigo {
         return Inigo {
             handler,
             processed: Default::default(),
+            scalars: Default::default(),
         };
     }
 
@@ -166,7 +170,9 @@ impl Inigo {
         request: &mut graphql::Request,
         headers: &HeaderMap<HeaderValue>,
     ) -> Option<graphql::Response> {
-        let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
+        let (req, req_len, ) = (null_mut(), &mut 0);
+        let (resp, resp_len) = (null_mut(), &mut 0);
+        let (analysis, analysis_len) = (null_mut(), &mut 0);
 
         let req_src: String = serde_json::to_string(&request).unwrap();
 
@@ -193,6 +199,8 @@ impl Inigo {
             resp_len,
             &req,
             req_len,
+            &analysis,
+            analysis_len,
         );
 
         self.set_processed(processed);
@@ -210,12 +218,23 @@ impl Inigo {
             update_request(request, serde_json::from_slice(&res_req).unwrap());
         }
 
+        if !analysis.is_null() {
+            let scalars = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
+            self.set_scalars(scalars.split(',').map(ToString::to_string).collect());
+            DISPOSE_MEMORY(analysis);
+        }
+
         return None;
     }
 
     fn set_processed(&self, val: usize) {
         let mut processed = self.processed.lock().unwrap();
         *processed = val;
+    }
+
+    fn set_scalars(&self, val: HashSet<String>) {
+        let mut scalars = self.scalars.lock().unwrap();
+        *scalars = val;
     }
 
     pub fn process_response(&self, resp: &mut graphql::Response) {
@@ -227,8 +246,7 @@ impl Inigo {
         let v = serde_json::to_value(&ResponseWrapper {
             errors: resp.errors.clone(),
             response_size: 0,
-            // disabled response fields counting
-            // response_body_counts: count_response_fields(resp),
+            response_body_counts: response_counts(resp, self.scalars.lock().unwrap().clone()),
         })
         .unwrap()
         .to_string();
@@ -273,6 +291,65 @@ fn from_raw(ptr: *mut c_char, len: usize) -> &'static [u8] {
         let slice = std::slice::from_raw_parts_mut(ptr, len);
         &*(slice as *mut [c_char] as *mut [u8])
     };
+}
+
+struct KeyValuePair<'a> {
+    key: ByteString,
+    val: &'a Value,
+}
+
+fn response_counts(resp: &graphql::Response, scalars: HashSet<String>) -> HashMap<ByteString, usize> {
+    let mut counts = HashMap::new();
+    counts.insert("errors".into(), resp.errors.len());
+    if resp.data.is_none() {
+        counts.insert("total_objects".into(), 0);
+        return counts;
+    }
+
+    counts.insert("total_objects".into(), count_total_objects(resp.data.as_ref().unwrap(), scalars));
+    return counts
+}
+
+fn count_total_objects(
+    response: &Value,
+    scalars: HashSet<String>,
+) -> usize {
+    let start = KeyValuePair {
+        key: "data".into(),
+        val: response,
+    };
+
+    let mut total = 0;
+
+    let mut stack: Vec<KeyValuePair> = vec![start];
+
+    while !stack.is_empty() {
+        let current = stack.pop().unwrap();
+        let key = current.key.clone();
+        let val = current.val;
+
+        if scalars.contains(key.as_str()) {
+            continue;
+        }
+
+        match val {
+            Value::Object(obj) => {
+                total += 1;
+                for (k, v) in obj {
+                    let key: ByteString = (key.as_str().to_owned() + "." + k.clone().as_str()).into();
+                    stack.push(KeyValuePair { key, val: &v });
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr {
+                    stack.push(KeyValuePair { key: key.clone(), val: &v });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return total;
 }
 
 #[allow(dead_code)]
@@ -337,7 +414,7 @@ struct ResponseWrapper {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     errors: Vec<graphql::Error>,
     response_size: usize,
-    // response_body_counts: HashMap<ByteString, usize>,
+    response_body_counts: HashMap<ByteString, usize>,
 }
 
 #[derive(Debug)]
@@ -459,7 +536,9 @@ impl Plugin for Middleware {
 
             let req_src: String = serde_json::to_string(&g_req.unwrap()).unwrap();
 
-            let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
+            let (req, req_len) = (null_mut(), &mut 0);
+            let (resp, resp_len) = (null_mut(), &mut 0);
+            let (analysis, analysis_len) = (null_mut(), &mut 0);
 
             let req_src_len = req_src.len();
             let req_src_cstr = CString::new(req_src.clone()).expect("CString::new failed");
@@ -481,7 +560,16 @@ impl Plugin for Middleware {
                 resp_len,
                 &req,
                 req_len,
+                &analysis,
+                analysis_len,
             );
+
+            if !analysis.is_null() {
+                let scalar_list = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
+                let scalar_set = scalar_list.split(',').map(ToString::to_string).collect::<HashSet<String>>();
+                let _ = request.context.insert("scalars", scalar_set);
+                DISPOSE_MEMORY(analysis);
+            }
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
@@ -558,7 +646,9 @@ impl Plugin for Middleware {
         ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
             let req_src = hyper::body::to_bytes(request.router_request.body_mut()).await?;
 
-            let (req, req_len, resp, resp_len) = (null_mut(), &mut 0, null_mut(), &mut 0);
+            let (req, req_len) = (null_mut(), &mut 0);
+            let ( resp, resp_len) = (null_mut(), &mut 0);
+            let (analysis, analysis_len) = (null_mut(), &mut 0);
 
             let req_src_len = req_src.len();
             let req_src_cstr = CString::new(req_src.clone()).expect("CString::new failed");
@@ -580,7 +670,16 @@ impl Plugin for Middleware {
                 resp_len,
                 &req,
                 req_len,
+                &analysis,
+                analysis_len,
             );
+
+            if !analysis.is_null() {
+                let scalar_list = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
+                let scalar_set = scalar_list.split(',').map(ToString::to_string).collect::<HashSet<String>>();
+                let _ = request.context.insert("scalars", scalar_set);
+                DISPOSE_MEMORY(analysis);
+            }
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
@@ -717,10 +816,11 @@ impl Plugin for Middleware {
         };
 
         let process_resp_fn = |i: Inigo| {
-            move |resp: supergraph::Response| {
-                let processed: usize = resp.context.get("processed").unwrap().unwrap_or_default();
-                return resp.map_stream(move |mut resp: graphql::Response| {
-                    i.set_processed(processed);
+            move |response: supergraph::Response| {
+                i.set_processed(response.context.get("processed").unwrap().unwrap_or_default());
+                i.set_scalars(response.context.get("scalars").unwrap().unwrap_or_default());
+
+                return response.map_stream(move |mut resp: graphql::Response| {
                     i.process_response(&mut resp);
                     return resp;
                 });
@@ -874,6 +974,7 @@ mod tests {
             ("data.key2".into(), 1),
             ("errors".into(), 0),
         ]),
+        1,
     )]
     #[case(
         r#"{"data":{"key":[]}}"#,
@@ -881,6 +982,7 @@ mod tests {
             ("data".into(), 1),
             ("errors".into(), 0),
         ]),
+        1,
     )]
     #[case(
         r#"{"data":{"key1":[["val1.0","val1.1","val1.2"],["val1.0","val1.1",["v1","v2"]]],"key2":["val2.0","val2.1"]}}"#,
@@ -890,6 +992,7 @@ mod tests {
             ("data.key2".into(), 2),
             ("errors".into(), 0),
         ]),
+        1,
     )]
     #[case(
         r#"{"data":{"key1":["val1.0","val1.1"],"key2":["val2.0","val2.1"]}}"#,
@@ -899,6 +1002,7 @@ mod tests {
             ("data.key2".into(), 2),
             ("errors".into(), 0),
         ]),
+        1,
     )]
     #[case(
         r#"{"data":[{"key":"val"},{"key":"val"}]}"#,
@@ -907,6 +1011,7 @@ mod tests {
             ("data.key".into(), 2),
             ("errors".into(), 0),
         ]),
+        2,
     )]
     #[case(
         r#"{"data":null}"#,
@@ -914,6 +1019,7 @@ mod tests {
             ("data".into(), 1),
             ("errors".into(), 0),
         ]),
+        0,
     )]
     #[case(
         r#"{"data":{"first":[{"key":"val"},{"key":"val"}],"second":[{"key":"val"},{"key":"val"}]}}"#,
@@ -925,6 +1031,7 @@ mod tests {
             ("data.second.key".into(), 2),
             ("errors".into(), 0),
         ]),
+    5,
     )]
     #[case(
         r#"{"data":{"first":[{"key1":"val"},{"key2":"val"}],"second":[{"key1":"val"},{"key2":"val"}]}}"#,
@@ -938,6 +1045,7 @@ mod tests {
             ("data.second.key2".into(), 1),
             ("errors".into(), 0),
         ]),
+    5,
     )]
     #[case(
         r#"{"data":{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}],"second":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}}"#,
@@ -953,6 +1061,7 @@ mod tests {
             ("data.second.key2".into(), 1),
             ("errors".into(), 0),
         ]),
+    5,
     )]
     #[case(
         r#"{"data":{"first":[{"key":"val","key1":{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}},["ignore",{"nested":"val"}],{"key":"val","key2":"val"}],"second":[{"key":[{"first":[{"key":"val","key1":"val"},{"key":"val","key2":"val"}]}],"key1":"val"},{"key":"val","key2":"val"}]}}"#,
@@ -977,10 +1086,12 @@ mod tests {
             ("data.second.key2".into(), 1),
             ("errors".into(), 0),
         ]),
+    12,
     )]
 
-    fn count_response(#[case] raw: &str, #[case] expected: HashMap<ByteString, usize>) {
+    fn count_response(#[case] raw: &str, #[case] expected: HashMap<ByteString, usize>, #[case] total_objects: usize) {
         let result: graphql::Response = serde_json::from_str(raw).unwrap();
         assert_eq!(count_response_fields(&result), expected);
+        assert_eq!(response_counts(&result, HashSet::new()).get("total_objects"), Some(&total_objects));
     }
 }
