@@ -1,8 +1,8 @@
 [package]
 name = "inigo-rs"
-version = "0.20.0"
+version = "0.30.5"
 edition = "2021"
-description = "inigo middleware"
+description = "Inigo plugin"
 license = "MIT"
 repository = "https://github.com/inigolabs/inigo-rs"
 authors = ["Andrii <isoluchok@gmail.com>"]
@@ -10,7 +10,7 @@ authors = ["Andrii <isoluchok@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apollo-router = { version = "1.34.1" }
+apollo-router = { version = "1.49.1" }
 async-trait = "0.1"
 schemars = { version = "0.8", features = ["url"] }
 serde = "1"
@@ -23,16 +23,16 @@ tracing = "0.1.34"
 sys-info = "0.9.1"
 anyhow = "1"
 sha2 = { version = "0.10.2", features = ["std"] }
-reqwest = { version = "0.11.11", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+reqwest = { version = "0.11.24", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 jsonpath = "0.1.1"
 serde_json_bytes = { version = "0.2.1", features = ["preserve_order"] }
-futures = "0.3.28"
-hyper = "0.14.27"
-uuid = {version = "1.4.1", features = ["v4", "fast-rng", "macro-diagnostics"]}
-multimap = "0.9.0"
-futures-util = "0.3.29"
+futures = "0.3.30"
+hyper = "0.14.28"
+uuid = {version = "1.7.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
+multimap = "0.9.1"
+futures-util = "0.3.30"
 axum = { version = "0.6.20" }
-url = "2.5.0"
+url = "2.5.2"
 
 [dev-dependencies]
 criterion = "0.5.1"

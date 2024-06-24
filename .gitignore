@@ -4,3 +4,4 @@
 /examples/axum/target/
 /examples/axum/Cargo.lock
 .idea/
+.DS_Store
