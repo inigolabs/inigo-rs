@@ -28,7 +28,7 @@ This package is the Inigo plugin for the Apollo Rust Router
 
 ```
 [dependencies]
-inigo-rs = "0.1.9"
+inigo-rs = "0.30.7"
 ```
 
 2. Register the plugin
@@ -50,6 +50,12 @@ plugins:
   inigo.middleware:
     token: "your-inigo-service-token"
 ```
+
+4. Placed a copy of [Inigo lib](https://github.com/inigolabs/artifacts/releases) file in the docker and set this env variable. For example:
+```
+INIGO_LIB_PATH=/inigo-linux-amd64.so
+```
+
 
 ### Documentation
 * [Docs](https://docs.inigo.io/)
