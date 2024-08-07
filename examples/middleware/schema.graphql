@@ -19,7 +19,7 @@ directive @join__graph(name: String!, url: String!) on ENUM_VALUE
 scalar join__FieldSet
 
 enum join__Graph {
-  STARWARS @join__graph(name: "starwars-sub-service" url: "http://localhost:30013/query")
+  STARWARS @join__graph(name: "starwars-sub-service" url: "http://34.173.208.203/query")
 }
 
 scalar Void

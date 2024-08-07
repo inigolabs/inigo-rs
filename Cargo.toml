@@ -1,11 +1,11 @@
 [package]
 name = "inigo-rs"
-version = "0.30.5"
+version = "0.30.8"
 edition = "2021"
 description = "Inigo plugin"
 license = "MIT"
 repository = "https://github.com/inigolabs/inigo-rs"
-authors = ["Andrii <isoluchok@gmail.com>"]
+authors = ["inigolabs <support@inigo.io>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

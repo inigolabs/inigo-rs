@@ -2467,7 +2467,7 @@ checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
 
 [[package]]
 name = "inigo-rs"
-version = "0.30.5"
+version = "0.30.8"
 dependencies = [
  "anyhow",
  "apollo-router",

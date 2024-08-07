@@ -92,8 +92,6 @@ lazy_static! {
         unsafe { LIB.get(b"create_mock").unwrap() };
     static ref DISPOSE_HANDLE: Symbol<'static, FnDisposeHandle> =
         unsafe { LIB.get(b"disposeHandle").unwrap() };
-    static ref DISPOSE_MEMORY: Symbol<'static, FnDisposeMemory> =
-        unsafe { LIB.get(b"disposeMemory").unwrap() };
     static ref CHECK_LAST_ERROR: Symbol<'static, FnCheckLastError> =
         unsafe { LIB.get(b"check_lasterror").unwrap() };
     static ref PROCESS_RESPONSE: Symbol<'static, FnProcessResponse> =
@@ -116,8 +114,6 @@ type FnProcessResponse = extern "C" fn(
 type FnCheckLastError = extern "C" fn() -> *mut c_char;
 
 type FnDisposeHandle = extern "C" fn(handle: usize);
-
-type FnDisposeMemory = extern "C" fn(ptr: *mut c_char);
 
 type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
@@ -208,20 +204,17 @@ impl Inigo {
         if !resp.is_null() {
             let res_resp = from_raw(resp, *resp_len).to_owned();
             DISPOSE_HANDLE(processed);
-            DISPOSE_MEMORY(resp);
             return serde_json::from_slice(&res_resp).unwrap();
         }
 
         if !req.is_null() {
             let res_req = from_raw(req, *req_len).to_owned();
-            DISPOSE_MEMORY(req);
             update_request(request, serde_json::from_slice(&res_req).unwrap());
         }
 
         if !analysis.is_null() {
             let scalars = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
             self.set_scalars(scalars.split(',').map(ToString::to_string).collect());
-            DISPOSE_MEMORY(analysis);
         }
 
         return None;
@@ -272,7 +265,6 @@ impl Inigo {
         let res_out = from_raw(out, *out_len).to_owned();
 
         DISPOSE_HANDLE(processed);
-        DISPOSE_MEMORY(out);
 
         let result: graphql::Response = serde_json::from_slice(&res_out).unwrap();
 
@@ -530,10 +522,8 @@ impl Plugin for Middleware {
             handler: usize,
             mut request: router::Request,
         ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
-            let g_req = graphql::Request::from_urlencoded_query(
-                request.router_request.uri().query().unwrap().to_string(),
-            );
-
+            let query = request.router_request.uri().query().unwrap_or("").to_string();
+            let g_req = graphql::Request::from_urlencoded_query(query);
             let req_src: String = serde_json::to_string(&g_req.unwrap()).unwrap();
 
             let (req, req_len) = (null_mut(), &mut 0);
@@ -568,13 +558,11 @@ impl Plugin for Middleware {
                 let scalar_list = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
                 let scalar_set = scalar_list.split(',').map(ToString::to_string).collect::<HashSet<String>>();
                 let _ = request.context.insert("scalars", scalar_set);
-                DISPOSE_MEMORY(analysis);
             }
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
                 DISPOSE_HANDLE(processed);
-                DISPOSE_MEMORY(resp);
 
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
@@ -587,8 +575,6 @@ impl Plugin for Middleware {
 
             if !req.is_null() {
                 let res_req = from_raw(req, *req_len).to_owned();
-                DISPOSE_MEMORY(req);
-
                 let g_req: graphql::Request = serde_json::from_slice(&res_req).unwrap();
 
                 // parse will fail bc base is missing, adding localhost here to bypass RelativeUrlWithoutBase error
@@ -678,13 +664,11 @@ impl Plugin for Middleware {
                 let scalar_list = String::from_utf8_lossy(from_raw(analysis, *analysis_len)).into_owned();
                 let scalar_set = scalar_list.split(',').map(ToString::to_string).collect::<HashSet<String>>();
                 let _ = request.context.insert("scalars", scalar_set);
-                DISPOSE_MEMORY(analysis);
             }
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
                 DISPOSE_HANDLE(processed);
-                DISPOSE_MEMORY(resp);
 
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
@@ -697,8 +681,6 @@ impl Plugin for Middleware {
 
             if !req.is_null() {
                 let res_req = from_raw(req, *req_len).to_owned();
-                DISPOSE_MEMORY(req);
-
                 *request.router_request.body_mut() = hyper::Body::from(res_req);
 
                 return Ok(ControlFlow::Continue(request));
