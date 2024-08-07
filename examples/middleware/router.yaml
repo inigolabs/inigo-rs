@@ -19,4 +19,7 @@ plugins:
     subgraphs_analytics: false
     jwt_header: "authorization"
     token: "${env.INIGO_SERVICE_TOKEN}"
-
+telemetry:
+  instrumentation:
+    spans:
+      mode: spec_compliant

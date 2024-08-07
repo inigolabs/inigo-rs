@@ -5,3 +5,4 @@
 /examples/axum/Cargo.lock
 .idea/
 .DS_Store
+/starwars/target/
