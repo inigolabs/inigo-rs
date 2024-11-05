@@ -31,6 +31,8 @@ use sha2::Sha256;
 use std::env;
 use std::io::Write;
 use std::thread;
+use std::env::consts::{OS, ARCH};
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct InigoRegistry {
@@ -168,11 +170,33 @@ impl InigoRegistry {
 
         headers.insert("Authorization", self.key.parse().unwrap());
         headers.insert("Content-Type", "application/json".parse().unwrap());
+        headers.insert("Inigo-Client-Version", (&format!("middleware : inigo-rs : {} : {}", OS, ARCH)).parse().unwrap());
+        
+        let query = r#"
+            query FetchFederatedSchema($afterVersion: Int32!) {
+                registry {
+                    federatedSchema(afterVersion: $afterVersion) {
+                        status
+                        version
+                        schema
+                    }
+                }
+            }
+        "#;
 
+        let variables = json!({
+            "afterVersion": self.version,
+        });
+        
+        let body = json!({
+            "query": query,
+            "variables": variables,
+        });
+        
         let resp = client
             .post(self.endpoint.as_str())
             .headers(headers)
-            .body(format!("{{\"query\":\"query FetchFederatedSchema {{registry {{ federatedSchema(afterVersion: {}) {{ status version schema      }}}}}}\"}}",self.version))
+            .json(&body)
             .send()
             .map_err(|e| e.to_string())?;
 
