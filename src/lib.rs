@@ -523,8 +523,30 @@ impl Plugin for Middleware {
             mut request: router::Request,
         ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
             let query = request.router_request.uri().query().unwrap_or("").to_string();
-            let g_req = graphql::Request::from_urlencoded_query(query);
-            let req_src: String = serde_json::to_string(&g_req.unwrap()).unwrap();
+            let g_req = match graphql::Request::from_urlencoded_query(query) {
+                Ok(req) => req,
+                Err(_) => {
+                    return Ok(ControlFlow::Break(router::Response::from(
+                        http::Response::builder()
+                            .status(400)
+                            .header("content-type", "application/json")
+                            .body(hyper::Body::from("invalid query"))
+                            .unwrap()
+                    )));
+                }
+            };
+            let req_src = match serde_json::to_string(&g_req) {
+                Ok(json) => json,
+                Err(_) => {
+                    return Ok(ControlFlow::Break(router::Response::from(
+                        http::Response::builder()
+                            .status(400)
+                            .header("content-type", "application/json")
+                            .body(hyper::Body::from("invalid JSON in query"))
+                            .unwrap()
+                    )));
+                }
+            };
 
             let (req, req_len) = (null_mut(), &mut 0);
             let (resp, resp_len) = (null_mut(), &mut 0);
