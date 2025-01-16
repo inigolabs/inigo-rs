@@ -28,7 +28,7 @@ This package is the Inigo plugin for the Apollo Rust Router
 
 ```
 [dependencies]
-inigo-rs = "0.30.10"
+inigo-rs = "0.30.18"
 ```
 
 2. Register the plugin
