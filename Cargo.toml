@@ -1,6 +1,6 @@
 [package]
 name = "inigo-rs"
-version = "0.30.12"
+version = "0.30.18"
 edition = "2021"
 description = "Inigo plugin"
 license = "MIT"
@@ -10,7 +10,7 @@ authors = ["inigolabs <support@inigo.io>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apollo-router = { version = "1.57.1" }
+apollo-router = { version = "1.59.1" }
 async-trait = "0.1"
 schemars = { version = "0.8", features = ["url"] }
 serde = "1"
@@ -32,7 +32,7 @@ uuid = {version = "1.7.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
 multimap = "0.9.1"
 futures-util = "0.3.30"
 axum = { version = "0.6.20" }
-url = "2.5.2"
+url = "2.5.4"
 
 [dev-dependencies]
 criterion = "0.5.1"
