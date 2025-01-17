@@ -10,7 +10,7 @@ authors = ["inigolabs <support@inigo.io>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apollo-router = { version = "1.57.1" }
+apollo-router = "=1.57.1"
 async-trait = "0.1"
 schemars = { version = "0.8", features = ["url"] }
 serde = "1"
