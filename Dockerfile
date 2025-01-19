@@ -1,18 +1,13 @@
-FROM --platform=${TARGETPLATFORM:-linux/amd64} rust:1.81 as rust-builder
+ARG TARGETARCH
 
-RUN apt-get update && apt-get install -y curl cmake git pkg-config libssl-dev protobuf-compiler
-# Copy source files
-COPY . /router
-WORKDIR /router/examples/middleware
+FROM cgr.dev/chainguard/glibc-dynamic:latest AS base
+LABEL org.opencontainers.image.source="https://github.com/inigolabs/inigo-rs/router"
 
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-RUN rustup component add rustfmt
-RUN cargo build --release
+FROM base AS build_arm64
+COPY examples/router/target/aarch64-unknown-linux-gnu/release/router /router
 
-FROM --platform=${TARGETPLATFORM:-linux/amd64} ubuntu:latest
+FROM base AS build_amd64
+COPY examples/router/target/x86_64-unknown-linux-gnu/release/router /router
 
-LABEL org.opencontainers.image.source=https://github.com/inigolabs/inigo-rs/router
-
-COPY --from=rust-builder /router/examples/middleware/target/release/router /router
-
-ENTRYPOINT ["./router"]
+FROM build_${TARGETARCH}
+ENTRYPOINT ["/router"]
