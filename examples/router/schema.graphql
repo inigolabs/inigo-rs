@@ -1,0 +1,233 @@
+schema @link(url: "https://specs.apollo.dev/tag/v0.2") @link(url: "https://specs.apollo.dev/join/v0.2", for: EXECUTION) @link(url: "https://specs.apollo.dev/link/v1.0") {
+	query: Query
+	mutation: Mutation
+}
+
+scalar Void @join__type(graph: STARWARS)
+scalar join__FieldSet
+scalar link__Import
+
+enum join__Graph {
+	STARWARS @join__graph(name: "starwars", url: "http://34.173.208.203/query")
+}
+enum link__Purpose {
+	"""
+	`EXECUTION` features provide metadata necessary for operation execution.
+	"""
+	EXECUTION
+	"""
+	`SECURITY` features provide metadata necessary to securely resolve fields.
+	"""
+	SECURITY
+}
+
+type Film @join__type(graph: STARWARS) {
+	characters: [Person!]!
+	count: Int
+	director: String! @tag(name: "M")
+	episodeId: Int! @tag(name: "L")
+	error: Boolean
+	id: ID!
+	openingCrawl: String!
+	panic: Boolean
+	planets: [Planet!]!
+	producer: String! @deprecated
+	species: [Species!]!
+	starships: [Starship!]!
+	timeout: Boolean
+	title: String! @tag(name: "H")
+	vehicles: [Vehicle!]! @access(role: ["viewer"])
+}
+type Mutation @join__type(graph: STARWARS) {
+	filmAdd(title: String!, input: FilmInput!): String
+	filmRemove(title: String!, removePlanets: Boolean @observe_omit): Int
+	sanitize: Void
+	userAdd(input: UserAddInput!): ID
+	userRemove(userID: ID!): Boolean!
+}
+type Person @join__type(graph: STARWARS) {
+	appearedIn: [Film!]! @access(role: ["director"])
+	birthYear: String!
+	error: Boolean
+	eyeColor: String!
+	fromPlanet: Planet
+	gender: String!
+	hairColor: String!
+	height: Int!
+	id: ID!
+	mass: Float
+	name: String!
+	panic: Boolean
+	pilotedStarship: [Starship!]!
+	pilotedVehicle: [Vehicle!]!
+	skinColor: String
+	ssn: String!
+	type: Species
+}
+type Planet @join__type(graph: STARWARS) {
+	appearedIn: [Film!]!
+	climate: String!
+	diameter: Int
+	error: Boolean
+	gravity: String!
+	homeTo: [Person!]!
+	id: ID!
+	name: String!
+	orbitalPeriod: String!
+	originOf: [Species!]!
+	panic: Boolean
+	population: Int
+	rotationPeriod: String!
+	surfaceWater: String!
+	terrain: String!
+}
+type Query @join__type(graph: STARWARS) {
+	film(title: String!): Film
+	films: [Film!]!
+	login(username: String!, password: String!): String
+	logout: Boolean!
+	people: [Person!]!
+	planets: [Planet!]!
+	species: [Species!]!
+	starships: [Starship!]!
+	user: User
+	vehicles: [Vehicle!]!
+	version: Version!
+}
+type Species @join__type(graph: STARWARS) {
+	appearedIn: [Film!]!
+	averageHeight: Int!
+	averageLifespan: String!
+	classification: String!
+	designation: String!
+	error: Boolean
+	eyeColor: String!
+	hairColor: String!
+	id: ID!
+	includesPerson: [Person!]!
+	language: String!
+	name: String!
+	originatesFrom: Planet!
+	panic: Boolean
+	skinColor: String!
+}
+type Starship @join__type(graph: STARWARS) {
+	appearedIn: [Film!]!
+	cargoCapacity: Int
+	class: String!
+	consumables: String!
+	costInCredits: Int!
+	crew: String!
+	error: Boolean
+	hyperdriveRating: String!
+	id: ID!
+	length: Float!
+	manufacturer: String!
+	maxAtmospheringSpeed: String!
+	maximumMegalights: String
+	model: String!
+	name: String!
+	panic: Boolean
+	passengerCapacity: Int
+	pilotedBy: [Person!]!
+}
+type User @join__type(graph: STARWARS) {
+	name: String!
+	password: String!
+	profile: String!
+	roles: [String!]!
+	username: String!
+}
+type Vehicle @join__type(graph: STARWARS) {
+	appearedIn: [Film!]!
+	cargoCapacity: Int
+	consumables: String!
+	costInCredits: Int!
+	crew: String!
+	error: Boolean
+	id: ID!
+	length: Float
+	manufacturer: String!
+	maxAtmospheringSpeed: String!
+	model: String!
+	name: String!
+	panic: Boolean
+	passengerCapacity: Int
+	pilotedBy: [Person!]!
+}
+type Version @join__type(graph: STARWARS) {
+	commit: String!
+	date: String!
+	name: String!
+	version: String!
+}
+
+input FilmInput @join__type(graph: STARWARS) {
+	director: String!
+	episodeId: Int!
+	openingCrawl: String!
+	planets: [PlanetInput!]!
+	producer: String! @observe_omit
+}
+input PlanetInput @join__type(graph: STARWARS) {
+	climate: String!
+	diameter: Int
+	gravity: String!
+	name: String!
+	orbitalPeriod: String!
+	population: Int
+	rotationPeriod: String!
+	surfaceWater: String!
+	terrain: String!
+}
+input UserAddInput @join__type(graph: STARWARS) {
+	name: String!
+	password: String!
+	profile: String!
+	roles: [String!]!
+	username: String!
+}
+
+directive @access(
+	role: [String]
+) on FIELD_DEFINITION
+
+directive @join__field(
+	type: String
+	external: Boolean
+	override: String
+	usedOverridden: Boolean
+	graph: join__Graph!
+	requires: join__FieldSet
+	provides: join__FieldSet
+) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+directive @join__graph(
+	name: String!
+	url: String!
+) on ENUM_VALUE
+
+directive @join__implements(
+	graph: join__Graph!
+	interface: String!
+) repeatable on OBJECT | INTERFACE
+
+directive @join__type(
+	key: join__FieldSet
+	extension: Boolean! = false
+	resolvable: Boolean! = true
+	graph: join__Graph!
+) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+directive @link(
+	as: String
+	import: [link__Import]
+	for: link__Purpose
+	url: String
+) repeatable on SCHEMA
+
+directive @observe_omit on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+
+directive @tag(
+	name: String!
+) repeatable on FIELD_DEFINITION | INTERFACE | OBJECT | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION

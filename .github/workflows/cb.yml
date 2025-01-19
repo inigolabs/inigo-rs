@@ -1,0 +1,98 @@
+name: Continuous Build
+
+on:
+  push:
+    branches: [master]
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  RUSTFLAGS: "-C link-dead-code"
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  IMAGE_NAME_ROUTER: ghcr.io/inigolabs/inigo-rs/router
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-20.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set Image tag
+        run: echo "IMAGE_TAG"=$(git describe --tags --always `git rev-list --tags --max-count=1`) >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GIT_TOKEN }}
+
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargolock-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup Qemu
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Setup Protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+
+      - name: Setup Sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Setup Mold
+        uses: rui314/setup-mold@v1
+
+      - name: Setup Rust toolchain (stable)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: x86_64-unknown-linux-gnu
+          components: rustfmt
+
+      - name: Setup Cargo-zigbuild
+        working-directory: examples/router
+        run: cargo install cargo-zigbuild --force
+
+      - name: Setup aarch64-unknown-linux-gnu toolchain
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Build linux/amd64/gnu
+        working-directory: examples/router
+        run: cargo zigbuild --target x86_64-unknown-linux-gnu.2.31 --release
+
+      - name: Build linux/arm64/gnu
+        working-directory: examples/router
+        run: cargo zigbuild --target aarch64-unknown-linux-gnu.2.31 --release
+ 
+      - name: Build Docker images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME_ROUTER }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME_ROUTER }}:latest

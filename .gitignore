@@ -1,8 +1,6 @@
 /target
-/examples/middleware/target/
-/examples/middleware/Cargo.lock
-/examples/axum/target/
+/examples/router/Cargo.lock
 /examples/axum/Cargo.lock
 .idea/
 .DS_Store
-/starwars/target/
+**/target/
