@@ -92,8 +92,6 @@ lazy_static! {
         unsafe { LIB.get(b"create_mock").unwrap() };
     static ref DISPOSE_HANDLE: Symbol<'static, FnDisposeHandle> =
         unsafe { LIB.get(b"disposeHandle").unwrap() };
-    static ref DISPOSE_PINNER: Symbol<'static, FnDisposePinner> =
-        unsafe { LIB.get(b"disposePinner").unwrap() };
     static ref CHECK_LAST_ERROR: Symbol<'static, FnCheckLastError> =
         unsafe { LIB.get(b"check_lasterror").unwrap() };
     static ref PROCESS_RESPONSE: Symbol<'static, FnProcessResponse> =
@@ -116,8 +114,6 @@ type FnProcessResponse = extern "C" fn(
 type FnCheckLastError = extern "C" fn() -> *mut c_char;
 
 type FnDisposeHandle = extern "C" fn(handle: usize);
-
-type FnDisposePinner = extern "C" fn(handle: usize);
 
 type FnCreate = extern "C" fn(ptr: *const SidecarConfig) -> usize;
 
@@ -187,7 +183,7 @@ impl Inigo {
         let name_len = name.len();
         let name_cstr = CString::new(name).expect("CString::new failed");
 
-        let handle = PROCESS_REQUEST(
+        let processed = PROCESS_REQUEST(
             self.handler,
             name_cstr.as_ptr(),
             name_len,
@@ -203,11 +199,11 @@ impl Inigo {
             analysis_len,
         );
 
-        self.set_processed(handle);
+        self.set_processed(processed);
 
         if !resp.is_null() {
             let res_resp = from_raw(resp, *resp_len).to_owned();
-            DISPOSE_HANDLE(handle);
+            DISPOSE_HANDLE(processed);
             return serde_json::from_slice(&res_resp).unwrap();
         }
 
@@ -221,7 +217,6 @@ impl Inigo {
             self.set_scalars(scalars.split(',').map(ToString::to_string).collect());
         }
 
-        DISPOSE_PINNER(handle);
         return None;
     }
 
@@ -528,30 +523,8 @@ impl Plugin for Middleware {
             mut request: router::Request,
         ) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
             let query = request.router_request.uri().query().unwrap_or("").to_string();
-            let g_req = match graphql::Request::from_urlencoded_query(query) {
-                Ok(req) => req,
-                Err(_) => {
-                    return Ok(ControlFlow::Break(router::Response::from(
-                        http::Response::builder()
-                            .status(400)
-                            .header("content-type", "application/json")
-                            .body(hyper::Body::from("invalid query"))
-                            .unwrap()
-                    )));
-                }
-            };
-            let req_src = match serde_json::to_string(&g_req) {
-                Ok(json) => json,
-                Err(_) => {
-                    return Ok(ControlFlow::Break(router::Response::from(
-                        http::Response::builder()
-                            .status(400)
-                            .header("content-type", "application/json")
-                            .body(hyper::Body::from("invalid JSON in query"))
-                            .unwrap()
-                    )));
-                }
-            };
+            let g_req = graphql::Request::from_urlencoded_query(query);
+            let req_src: String = serde_json::to_string(&g_req.unwrap()).unwrap();
 
             let (req, req_len) = (null_mut(), &mut 0);
             let (resp, resp_len) = (null_mut(), &mut 0);
@@ -565,7 +538,7 @@ impl Plugin for Middleware {
             let header_len = h.len();
             let header_cstr = CString::new(h).expect("CString::new failed");
 
-            let handle = PROCESS_REQUEST(
+            let processed = PROCESS_REQUEST(
                 handler,
                 null(),
                 0,
@@ -589,7 +562,7 @@ impl Plugin for Middleware {
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
-                DISPOSE_HANDLE(handle);
+                DISPOSE_HANDLE(processed);
 
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
@@ -598,7 +571,7 @@ impl Plugin for Middleware {
                 )));
             }
 
-            let _ = request.context.insert("processed", handle);
+            let _ = request.context.insert("processed", processed);
 
             if !req.is_null() {
                 let res_req = from_raw(req, *req_len).to_owned();
@@ -646,9 +619,10 @@ impl Plugin for Middleware {
                     .strip_prefix("http://localhost")
                     .unwrap()
                     .parse()?;
+
+                return Ok(ControlFlow::Continue(request));
             }
 
-            DISPOSE_PINNER(handle);
             Ok(ControlFlow::Continue(request))
         }
 
@@ -670,7 +644,7 @@ impl Plugin for Middleware {
             let header_len = h.len();
             let header_cstr = CString::new(h).expect("CString::new failed");
 
-            let handle = PROCESS_REQUEST(
+            let processed = PROCESS_REQUEST(
                 handler,
                 null(),
                 0,
@@ -694,7 +668,7 @@ impl Plugin for Middleware {
 
             if !resp.is_null() {
                 let res_resp = from_raw(resp, *resp_len).to_owned();
-                DISPOSE_HANDLE(handle);
+                DISPOSE_HANDLE(processed);
 
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
@@ -703,16 +677,17 @@ impl Plugin for Middleware {
                 )));
             }
 
-            let _ = request.context.insert("processed", handle);
+            let _ = request.context.insert("processed", processed);
 
             if !req.is_null() {
                 let res_req = from_raw(req, *req_len).to_owned();
                 *request.router_request.body_mut() = hyper::Body::from(res_req);
-            } else {
-                *request.router_request.body_mut() = hyper::Body::from(req_src);
+
+                return Ok(ControlFlow::Continue(request));
             }
 
-            DISPOSE_PINNER(handle);
+            *request.router_request.body_mut() = hyper::Body::from(req_src);
+
             Ok(ControlFlow::Continue(request))
         }
 
