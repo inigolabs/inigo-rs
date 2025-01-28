@@ -1,6 +1,5 @@
 /target
-/examples/router/Cargo.lock
-/examples/axum/Cargo.lock
+/examples/**/Cargo.lock
 .idea/
 .DS_Store
 **/target/

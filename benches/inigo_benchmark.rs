@@ -1,7 +1,7 @@
 use apollo_router::graphql::{Request, Response};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use http::HeaderMap;
-use inigo_rs::{Inigo, SidecarConfig, CREATE_MOCK};
+use inigo_rs::ffi::{Inigo, SidecarConfig, create_mock};
 use serde_json_bytes::{ByteString, Map, Value};
 use std::ffi::CString;
 use std::fs::File;
@@ -17,7 +17,7 @@ fn handle_responce(c: &mut Criterion) {
     file.read_to_string(&mut content).unwrap();
 
     let schema = CString::new(content).unwrap().into_raw();
-    let i = Inigo::new(CREATE_MOCK(&SidecarConfig {
+    let i = Inigo::new(create_mock(&SidecarConfig {
         debug: false,
         egress_url: null(),
         service: null(),
