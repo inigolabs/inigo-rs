@@ -6,5 +6,9 @@ authors = ["sunli <scott_s829@163.com>"]
 edition = "2021"
 
 [dependencies]
-async-graphql = "6.0.11"
-slab = "0.4.2"
+async-graphql = "=6.0.11"
+tokio = { version = "1.8", features = ["macros", "rt-multi-thread"] }
+starwars = { path = "model" }
+axum = { version = "=0.6.20" }
+async-graphql-axum = "=6.0.11"
+inigo-rs = { path = "../.." }

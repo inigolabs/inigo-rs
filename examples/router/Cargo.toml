@@ -5,5 +5,4 @@ edition = "2021"
 
 [dependencies]
 inigo-rs = { path = "../.." }
-anyhow = "1"
 apollo-router = "1.59.1"

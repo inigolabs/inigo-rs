@@ -1,17 +1,17 @@
-use crate::str_to_c_char;
-use crate::Inigo;
-use crate::SidecarConfig;
-use crate::CREATE;
-use apollo_router::graphql;
+use std::ptr::null;
+use std::task::{Context, Poll};
+
 use axum::{
     body::Body,
     http::Request,
     response::{IntoResponse, Response},
 };
-use futures_util::future::BoxFuture;
-use std::ptr::null;
-use std::task::{Context, Poll};
+
+use apollo_router::graphql;
 use tower::{Layer, Service};
+use futures_util::future::BoxFuture;
+
+use crate::ffi::*;
 
 #[derive(Clone)]
 pub struct InigoLayer {
@@ -21,18 +21,24 @@ pub struct InigoLayer {
 
 impl InigoLayer {
     pub fn new(token: &str, schema: &str, path: &'static str) -> Self {
+        tokio::task::block_in_place(|| {
+            download_library();
+        });
+
+        let handle = create(&SidecarConfig {
+            debug: false,
+            service: null(),
+            token: to_raw(token),
+            schema: to_raw(schema),
+            name: to_raw("inigo-rs"),
+            runtime: null(),
+            egress_url: null(),
+            gateway: null(),
+            disable_response_data: true,
+        });
+
         InigoLayer {
-            handler: CREATE(&SidecarConfig {
-                debug: false,
-                service: null(),
-                token: str_to_c_char(token),
-                schema: str_to_c_char(schema),
-                name: str_to_c_char("inigo-rs"),
-                runtime: null(),
-                egress_url: null(),
-                gateway: null(),
-                disable_response_data: true,
-            }),
+            handler: handle.unwrap(),
             path,
         }
     }

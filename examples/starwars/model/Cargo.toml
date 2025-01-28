@@ -1,0 +1,10 @@
+# Package was copied from https://github.com/async-graphql/examples/tree/master/models/starwars
+[package]
+name = "starwars"
+version = "0.1.1"
+authors = ["sunli <scott_s829@163.com>"]
+edition = "2021"
+
+[dependencies]
+async-graphql = "6.0.11"
+slab = "0.4.9"

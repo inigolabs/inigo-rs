@@ -16,6 +16,7 @@ cors:
   origins: []
 plugins:
   inigo.middleware:
+    auto_download_library: true
     subgraphs_analytics: false
     jwt_header: "authorization"
     token: "${env.INIGO_SERVICE_TOKEN}"

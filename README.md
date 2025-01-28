@@ -26,12 +26,29 @@ This package is the Inigo plugin for the Apollo Rust Router
 
 1. Import the Inigo library in your Cargo.toml
 
-```
-[dependencies]
-inigo-rs = "0.30.19"
+```sh
+cargo add inigo-rs
 ```
 
-2. Register the plugin
+2. a. Setup Inigo plugin (without registry)
+```rs
+use apollo_router::register_plugin;
+use inigo_rs::Middleware;
+
+register_plugin!("inigo", "middleware", Middleware);
+
+fn main() {
+    match apollo_router::main() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
+}
+```
+
+2. b. Setup Inigo plugin (with registry)
 ```rs
 use apollo_router::register_plugin;
 use inigo_rs::registry::InigoRegistry;
@@ -40,7 +57,6 @@ use inigo_rs::Middleware;
 register_plugin!("inigo", "middleware", Middleware);
 
 fn main() {
-    // Initialize the Inigo Registry and start the Apollo Router
     match InigoRegistry::new(None).and(apollo_router::main()) {
         Ok(_) => {}
         Err(e) => {
@@ -58,11 +74,27 @@ plugins:
     token: "your-inigo-service-token"
 ```
 
-4. Placed a copy of [Inigo lib](https://github.com/inigolabs/artifacts/releases) file in the docker and set this env variable. For example:
-```
-INIGO_LIB_PATH=/inigo-linux-amd64.so
+Tip: It can also be an environment variable
+```yaml
+plugins:
+  inigo.middleware:
+    token: "${env.INIGO_SERVICE_TOKEN}"
 ```
 
+4. a. Automatic FFI library loading
+Inigo Rust Router will automatically download the Inigo library from the Inigo service. Only if configured.
+```yaml
+plugins:
+  inigo.middleware:
+    token: "${env.INIGO_SERVICE_TOKEN}"
+    auto_download_library: true
+```
+
+4. b Manual FFI library loading
+Place a copy of [Inigo lib](https://github.com/inigolabs/artifacts/releases) file in the docker and set this env variable. For example:
+```
+INIGO_LIB_PATH=/inigo-linux-amd64.so # Change depending on path/file name (platform and architecture)
+```
 
 ### Documentation
 * [Docs](https://docs.inigo.io/)

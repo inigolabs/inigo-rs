@@ -113,7 +113,7 @@ impl QueryRoot {
         &self,
         ctx: &Context<'a>,
         #[graphql(
-        desc = "If omitted, returns the hero of the whole saga. If provided, returns the hero of that particular episode."
+            desc = "If omitted, returns the hero of the whole saga. If provided, returns the hero of that particular episode."
         )]
         episode: Option<Episode>,
     ) -> Character<'a> {
@@ -172,11 +172,12 @@ impl QueryRoot {
 }
 
 #[derive(Interface)]
+#[allow(clippy::duplicated_attributes)]
 #[graphql(
-field(name = "id", ty = "&str"),
-field(name = "name", ty = "&str"),
-field(name = "friends", ty = "Vec<Character<'ctx>>"),
-field(name = "appears_in", ty = "&[Episode]")
+    field(name = "id", ty = "&str"),
+    field(name = "name", ty = "&str"),
+    field(name = "friends", ty = "Vec<Character<'ctx>>"),
+    field(name = "appears_in", ty = "&[Episode]")
 )]
 pub enum Character<'a> {
     Human(Human<'a>),
@@ -191,9 +192,9 @@ async fn query_characters<'a, F, T>(
     characters: &[&'a StarWarsChar],
     map_to: F,
 ) -> Result<Connection<usize, T>>
-    where
-        F: Fn(&'a StarWarsChar) -> T,
-        T: OutputType,
+where
+    F: Fn(&'a StarWarsChar) -> T,
+    T: OutputType,
 {
     query(
         after,
@@ -238,5 +239,5 @@ async fn query_characters<'a, F, T>(
             Ok::<_, Error>(connection)
         },
     )
-        .await
+    .await
 }
