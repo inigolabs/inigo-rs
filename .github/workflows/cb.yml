@@ -96,3 +96,4 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME_ROUTER }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME_ROUTER }}:latest
