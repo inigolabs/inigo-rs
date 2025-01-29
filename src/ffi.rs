@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::ptr::{null, null_mut};
 use std::collections::{HashSet, HashMap};
 
-use log::debug;
+use log::{error, info, debug};
 use apollo_router::graphql;
 use libloading::{Library, Symbol};
 use http::{HeaderMap, HeaderValue};
@@ -101,7 +101,7 @@ mod lib {
                         msg = format!("The router could not find the Inigo library, please make sure you specified {}=/path/to/libinigo.so", LIB_PATH);
                     };
 
-                    println!("{}", &msg);
+                    error!("{}", &msg);
                     process::exit(1);
                 }
             };
@@ -216,8 +216,9 @@ impl Inigo {
             out_len,
         );
 
+        debug!("inigo-rs: response, {:?}, {}", out, out_len);
+
         if out.is_null() {
-            debug!("inigo-rs: response was null, {:?}, {}", out, out_len);
             dispose_handle(handle);
             return;
         }
@@ -307,29 +308,27 @@ pub(crate) fn process_request(
         analysis_len,
     );
 
+    debug!("inigo-rs: request response, {:?}, {}", resp, resp_len);
+    debug!("inigo-rs: request mutation, {:?}, {}", req, req_len);
+    debug!("inigo-rs: request analysis, {:?}, {}", analysis, analysis_len);
+
     // response
     if !resp.is_null() {
         *out_resp = Some(unsafe { std::slice::from_raw_parts_mut(resp, *resp_len) }.to_owned());
         dispose_handle(request_handle);
         return request_handle;
-    } else {
-        debug!("inigo-rs: request immediate response was null, {:?}, {}", out_resp, resp_len);
-    }
+    } 
 
     // request mutation
     if !req.is_null() {
         *out_req = Some(unsafe { std::slice::from_raw_parts_mut(req, *req_len) }.to_owned());
-    } else {
-        debug!("inigo-rs: request mutation was null, {:?}, {}", out_req, req_len);
-    }
+    } 
 
     // analysis
     if !analysis.is_null() {
         let raw = unsafe { std::slice::from_raw_parts_mut(analysis, *analysis_len) }.to_owned();
         let res = String::from_utf8_lossy(raw.as_slice()).into_owned();
         *out_scalars = Some(res.split(',').map(ToString::to_string).collect());
-    } else {
-        debug!("inigo-rs: analysis was null, {:?}, {}", analysis, analysis_len);
     }
 
     dispose_pinner(request_handle);
@@ -368,8 +367,6 @@ pub(crate) fn free_raw(val: *const c_char)  {
 }
 
 pub fn download_library() {
-    println!("Checking for Inigo library at {}", lib::INIGO_LIB_PATH.as_str());
-    
     let os = match sys_info::os_type().unwrap().as_str() {
         "Linux" => "linux",
         "Darwin" => "darwin",
@@ -391,7 +388,7 @@ pub fn download_library() {
     );
 
     if !std::path::Path::new(lib::INIGO_LIB_PATH.as_str()).exists() {
-        println!("Downloading Inigo library from {}", &url);
+        info!("downloading inigo library from {} to {}", &url, lib::INIGO_LIB_PATH.as_str());
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(60 * 30))
             .build()
