@@ -3,7 +3,7 @@ name: Continuous Build
 on:
   push:
     branches: [master]
-  # pull_request:
+  pull_request:
 
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -67,7 +67,7 @@ jobs:
       - name: Setup Rust toolchain (stable)
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.81
           override: true
           target: x86_64-unknown-linux-gnu
           components: rustfmt
@@ -96,4 +96,3 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME_ROUTER }}:${{ env.IMAGE_TAG }}
-            ${{ env.IMAGE_NAME_ROUTER }}:latest
