@@ -63,3 +63,7 @@ query {
   }
 }
 ```
+
+**tip**: make sure to configure your service, in order to see `extensions` output in the response. 
+
+Find out more info here: https://docs.inigo.io/reference/configuration/service
