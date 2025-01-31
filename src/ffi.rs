@@ -285,11 +285,11 @@ pub(crate) fn process_request(
         None => 0,
     };
 
-    let name_raw = if name_len > 0 {
+    let name_raw: *mut c_char = if name_len > 0 {
         let m = CString::new(name.unwrap()).unwrap();
-        m.as_ptr()
+        m.into_raw()
     } else {    
-        null()
+        null_mut()
     };
 
     let request_handle = lib::PROCESS_REQUEST(
@@ -329,6 +329,11 @@ pub(crate) fn process_request(
         let raw = unsafe { std::slice::from_raw_parts_mut(analysis, *analysis_len) }.to_owned();
         let res = String::from_utf8_lossy(raw.as_slice()).into_owned();
         *out_scalars = Some(res.split(',').map(ToString::to_string).collect());
+    }
+
+    // reown name_raw pointer
+    if !name_raw.is_null() {
+        unsafe { let _ = CString::from_raw(name_raw); };
     }
 
     dispose_pinner(request_handle);
