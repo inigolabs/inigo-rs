@@ -87,6 +87,37 @@ jobs:
         working-directory: examples/router
         run: cargo zigbuild --target aarch64-unknown-linux-gnu.2.31 --release
  
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+      - name: Upload router binary for amd64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: examples/router/target/x86_64-unknown-linux-gnu/release/router
+          asset_name: router_linux_amd64
+          asset_content_type: application/octet-stream
+
+      - name: Upload router binary for arm64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: examples/router/target/aarch64-unknown-linux-gnu/release/router
+          asset_name: router_linux_arm64
+          asset_content_type: application/octet-stream
+
       - name: Build Docker images
         uses: docker/build-push-action@v6
         with:

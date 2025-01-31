@@ -1,6 +1,6 @@
 ARG TARGETARCH
 
-FROM cgr.dev/chainguard/glibc-dynamic:latest AS base
+FROM ubuntu:latest AS base
 LABEL org.opencontainers.image.source="https://github.com/inigolabs/inigo-rs/router"
 
 FROM base AS build_arm64
