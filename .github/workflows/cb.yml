@@ -93,8 +93,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.sha.substring(0, 7) }}
-          release_name: ${{ github.sha.substring(0, 7) }}
+          tag_name: ${{ env.IMAGE_TAG }}
+          release_name: ${{ env.IMAGE_TAG }}
           draft: false
           prerelease: false
 
