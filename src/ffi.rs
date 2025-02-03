@@ -316,7 +316,7 @@ pub(crate) fn process_request(
     if !resp.is_null() {
         *out_resp = Some(unsafe { std::slice::from_raw_parts_mut(resp, *resp_len) }.to_owned());
         dispose_handle(request_handle);
-        return request_handle;
+        return 0;
     } 
 
     // request mutation
