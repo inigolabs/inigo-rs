@@ -11,7 +11,7 @@ use apollo_router::graphql;
 use libloading::{Library, Symbol};
 use http::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json_bytes::ByteString;
+use serde_json_bytes::{ByteString, Value, Map};
 
 use crate::parser::response_counts;
 
@@ -41,6 +41,8 @@ pub struct SidecarConfig {
 struct ResponseWrapper {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     errors: Vec<graphql::Error>,
+    #[serde(skip_serializing_if = "Map::is_empty", default)]
+    extensions: Map<ByteString, Value>,
     response_size: usize,
     response_body_counts: HashMap<ByteString, usize>,
 }
@@ -197,6 +199,7 @@ impl Inigo {
 
         let v: String = serde_json::to_value(&ResponseWrapper {
             errors: resp.errors.clone(),
+            extensions: resp.extensions.clone(),
             response_size: 0,
             response_body_counts: response_counts(resp, self.scalars.lock().unwrap().clone()),
         }).unwrap().to_string();
