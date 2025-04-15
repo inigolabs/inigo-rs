@@ -1,8 +1,8 @@
 [package]
 name = "router"
-version = "0.1.0"
+version = "1.2.0"
 edition = "2021"
 
 [dependencies]
 inigo-rs = { path = "../.." }
-apollo-router = "1.59.1"
+apollo-router = "1.61.3"
