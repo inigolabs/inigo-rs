@@ -59,7 +59,7 @@ jobs:
         uses: mlugg/setup-zig@v1
 
       - name: Setup Sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.8
 
       - name: Setup Mold
         uses: rui314/setup-mold@v1
