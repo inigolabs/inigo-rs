@@ -1,4 +1,6 @@
 use tower::{BoxError, Service};
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use apollo_router::services::router;
 use futures::future::BoxFuture;
 
@@ -25,10 +27,11 @@ impl Service<router::Request> for ProxyService {
         let authority = self.url.authority().unwrap().clone();
 
         let fut = async move {
-            let client = hyper::Client::new();
+            let connector = HttpConnector::new();
+            let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(connector);
 
             let uri = req.router_request.uri();
-            let new_uri = http::Uri::builder()
+            let new_uri = hyper::Uri::builder()
                 .scheme(scheme.as_str())
                 .authority(authority.as_str())
                 .path_and_query(uri.path_and_query().unwrap().clone().as_str())
@@ -37,7 +40,7 @@ impl Service<router::Request> for ProxyService {
 
             *req.router_request.uri_mut() = new_uri;
 
-            let resp = client.request(req.router_request).await.unwrap();
+            let resp = client.request(req.router_request).await?;
 
             Ok(router::Response::from(resp))
         };

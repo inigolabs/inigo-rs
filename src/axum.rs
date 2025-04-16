@@ -10,6 +10,7 @@ use axum::{
 use apollo_router::graphql;
 use tower::{Layer, Service};
 use futures_util::future::BoxFuture;
+use http_body_util::BodyExt;
 
 use crate::ffi::*;
 
@@ -96,7 +97,7 @@ where
 
             let headers = request.headers().clone();
             let (mut parts, body) = request.into_parts();
-            let bytes = hyper::body::to_bytes(body).await.unwrap();
+            let bytes = body.collect().await.unwrap().to_bytes();
 
             let mut req: graphql::Request = serde_json::from_slice(&bytes).unwrap();
             let resp = inigo.process_request("", &mut req, &headers);
@@ -116,7 +117,7 @@ where
             let response: Response = future.await?;
 
             let (mut parts, body) = response.into_parts();
-            let bytes = hyper::body::to_bytes(body).await.unwrap();
+            let bytes = body.collect().await.unwrap().to_bytes();
 
             let mut resp: graphql::Response = serde_json::from_slice(&bytes).unwrap();
             inigo.process_response(&mut resp);
