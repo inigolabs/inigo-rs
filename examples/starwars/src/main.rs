@@ -1,35 +1,31 @@
-use async_graphql::{http::GraphiQLSource, EmptyMutation, EmptySubscription, Schema};
-use async_graphql_axum::GraphQL;
-use axum::{
-    response::{self, IntoResponse},
-    routing::get,
-    Router,
-    Server,
-};
-use starwars::{QueryRoot, StarWars};
-use inigo_rs::axum::InigoLayer;
+use inigo_rs::poem::InigoLayer;
+use async_graphql::http::GraphiQLSource;
+use async_graphql_poem::GraphQL;
+use poem::{get, handler, listener::TcpListener, web::Html, EndpointExt, IntoResponse, Route, Server};
 
+#[handler]
 async fn graphiql() -> impl IntoResponse {
-    response::Html(GraphiQLSource::build().endpoint("/").finish())
+    Html(GraphiQLSource::build().endpoint("/").finish())
 }
 
 #[tokio::main]
 async fn main() {
-     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
-        .data(StarWars::new())
-        .finish();
-
+    let schema = starwars::schema().unwrap();
     let sdl = &schema.sdl();
-    let app = Router::new()
-        .route("/", get(graphiql).post_service(GraphQL::new(schema)))
-        .layer(InigoLayer::new(&std::env::var("INIGO_SERVICE_TOKEN").
-            expect("env variable INIGO_SERVICE_TOKEN"), 
-            sdl, "/"));
 
-    println!("INFO  GraphQL endpoint exposed at http://127.0.0.1:4000/ 🚀");
+    let inigo = InigoLayer::new(
+        &std::env::var("INIGO_SERVICE_TOKEN").expect("env variable INIGO_SERVICE_TOKEN"), 
+        sdl, "/");
 
-    Server::bind(&"127.0.0.1:4000".parse().unwrap())
-        .serve(app.into_make_service())
+    let app = Route::new()
+    .at("/", 
+        get(graphiql).
+        post(GraphQL::new(schema)))
+    .with(inigo);
+
+    println!("GraphiQL IDE: http://localhost:4000");
+    Server::new(TcpListener::bind("127.0.0.1:4000"))
+        .run(app)
         .await
         .unwrap();
 }
