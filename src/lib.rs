@@ -1,4 +1,5 @@
 pub mod axum;
+pub mod poem;
 pub mod registry;
 pub mod ffi;
 mod tests;
