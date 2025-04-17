@@ -135,8 +135,10 @@ impl InigoRegistry {
 
         let file_name = get_schema_path();
         println!("Following schema will be wached: {}", file_name.as_str());
-        env::set_var("APOLLO_ROUTER_SUPERGRAPH_PATH", file_name.clone());
-        env::set_var("APOLLO_ROUTER_HOT_RELOAD", "true");
+        unsafe {
+            env::set_var("APOLLO_ROUTER_SUPERGRAPH_PATH", file_name.clone());
+            env::set_var("APOLLO_ROUTER_HOT_RELOAD", "true");
+        }
 
         let mut registry = InigoRegistry {
             endpoint,

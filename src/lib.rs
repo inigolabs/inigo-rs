@@ -3,7 +3,6 @@ pub mod registry;
 pub mod ffi;
 mod tests;
 mod proxy_service;
-mod router_service;
 mod parser;
 
 #[macro_use]
@@ -16,6 +15,11 @@ use std::str::FromStr;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
 use http::{HeaderName, HeaderValue};
+use http_body_util::combinators::UnsyncBoxBody;
+use http_body_util::BodyExt;
+use http_body_util::Full;
+use hyper::body::Bytes;
+use futures::FutureExt;
 
 use serde::Deserialize;
 use multimap::MultiMap;
@@ -111,7 +115,7 @@ impl Plugin for Middleware {
             handler: ffi::create(&cfg).expect("libinigo"),
             enabled: init.config.enabled,
             subgraphs_analytics: init.config.subgraphs_analytics,
-            trace_header: init.config.trace_header,
+            trace_header: init.config.trace_header.clone(),
             auto_download_library: init.config.auto_download_library,
         };
 
@@ -141,7 +145,7 @@ impl Plugin for Middleware {
                         http::Response::builder()
                             .status(400)
                             .header("content-type", "application/json")
-                            .body(hyper::Body::from("invalid query"))
+                            .body(String::from("invalid query"))
                             .unwrap()
                     )));
                 }
@@ -154,7 +158,7 @@ impl Plugin for Middleware {
                         http::Response::builder()
                             .status(400)
                             .header("content-type", "application/json")
-                            .body(hyper::Body::from("invalid JSON in query"))
+                            .body(String::from("invalid JSON in query"))
                             .unwrap()
                     )));
                 }
@@ -183,7 +187,7 @@ impl Plugin for Middleware {
             if resp_data.is_some() {
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
-                        .body(hyper::Body::from(resp_data.unwrap()))
+                        .body(body_from_bytes(resp_data.unwrap()))
                         .unwrap(),
                 )));
             }
@@ -235,8 +239,7 @@ impl Plugin for Middleware {
         }
 
         async fn process_post(handler: usize, mut request: router::Request) -> Result<ControlFlow<router::Response, router::Request>, BoxError> {
-
-            let data = hyper::body::to_bytes(request.router_request.body_mut()).await?;
+            let data = request.router_request.body_mut().collect().await?.to_bytes();
             let headers = request.router_request.headers();
 
             let mut req_mut_data: Option<Vec<u8>> = None;
@@ -258,13 +261,13 @@ impl Plugin for Middleware {
             if resp_data.is_some() {
                 return Ok(ControlFlow::Break(router::Response::from(
                     http::Response::builder()
-                        .body(hyper::Body::from(resp_data.unwrap()))
+                        .body(body_from_bytes(resp_data.unwrap()))
                         .unwrap(),
                 )));
             }
 
             if req_mut_data.is_some() {
-                *request.router_request.body_mut() = hyper::Body::from(req_mut_data.unwrap());
+                *request.router_request.body_mut() = body_from_bytes(req_mut_data.unwrap());
                 return Ok(ControlFlow::Continue(request));
             }
 
@@ -272,39 +275,41 @@ impl Plugin for Middleware {
                 let _ = request.context.insert("scalars", scalars.unwrap());
             }
 
-            *request.router_request.body_mut() = hyper::Body::from(data);
+            *request.router_request.body_mut() = body_from_bytes(data);
             Ok(ControlFlow::Continue(request))
         }
+    
+        ServiceBuilder::new()
+            .checkpoint_async(move |mut request: router::Request| {
+                let trace = trace.clone();
 
-        ServiceBuilder::new().oneshot_checkpoint_async(move |mut request: router::Request| {
-            let trace = trace.clone();
+                async move {
+                    let method = request.router_request.method().clone();
 
-            async move {
-                let method = request.router_request.method().clone();
+                    request
+                        .router_request
+                        .headers_mut()
+                        .entry(HeaderName::from_str(&trace).unwrap())
+                        .or_insert(
+                            HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).unwrap(),
+                        );
 
-                request
-                    .router_request
-                    .headers_mut()
-                    .entry(HeaderName::from_str(&trace).unwrap())
-                    .or_insert(
-                        HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).unwrap(),
-                    );
+                    // Handle GET request
+                    if method == http::Method::GET {
+                        return process_get(handler, request).await;
+                    }
 
-                // Handle GET request
-                if method == http::Method::GET {
-                    return process_get(handler, request).await;
-                }
+                    // Handle POST request
+                    if method == http::Method::POST {
+                        return process_post(handler, request).await;
+                    }
 
-                // Handle POST request
-                if method == http::Method::POST {
-                    return process_post(handler, request).await;
-                }
-
-                Ok(ControlFlow::Continue(request))
-            }
-        })
-        .service(service)
-        .boxed()
+                    Ok(ControlFlow::Continue(request))
+                }.boxed()
+            })
+            .buffered()
+            .service(service)
+            .boxed()
     }
 
     fn subgraph_service(&self, _name: &str, service: subgraph::BoxService) -> subgraph::BoxService {
@@ -337,11 +342,12 @@ impl Plugin for Middleware {
 
                 return Ok(ControlFlow::Break(
                     subgraph::Response::builder()
-                        .data(response.data.unwrap_or_default())
-                        .errors(response.errors)
-                        .extensions(response.extensions)
-                        .context(req.context)
-                        .build(),
+                    .data(response.data.unwrap_or_default())
+                    .errors(response.errors)
+                    .extensions(response.extensions)
+                    .context(req.context)
+                    .subgraph_name(&name)
+                    .build()
                 ));
             }
         };
@@ -444,4 +450,10 @@ fn default_true() -> bool {
 
 fn default_trace_header() -> String {
     "Inigo-Router-TraceID".to_string()
+}
+
+fn body_from_bytes<T: Into<Bytes>>(chunk: T) -> UnsyncBoxBody<Bytes, axum_core::Error> {
+    Full::new(chunk.into())
+        .map_err(|never| match never {})
+        .boxed_unsync()
 }
