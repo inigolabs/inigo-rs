@@ -34,7 +34,7 @@ futures-util = "0.3.30"
 axum = { version = "0.6.20" }
 url = "2.5.4"
 sysinfo = "0.33.1"
-tokio = "1.43.0"
+tokio = "1.43.1"
 log = "0.4.25"
 
 [dev-dependencies]
