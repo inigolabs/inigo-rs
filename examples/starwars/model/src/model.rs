@@ -1,243 +1,275 @@
-#![allow(clippy::needless_lifetimes)]
+use async_graphql::{dynamic::*, Value};
 
-use async_graphql::{
-    connection::{query, Connection, Edge},
-    Context, Enum, Error, Interface, Object, OutputType, Result,
-};
+use crate::{Episode, StarWars, StarWarsChar};
 
-use super::StarWars;
-use crate::StarWarsChar;
-
-/// One of the films in the Star Wars Trilogy
-#[derive(Enum, Copy, Clone, Eq, PartialEq)]
-pub enum Episode {
-    /// Released in 1977.
-    NewHope,
-
-    /// Released in 1980.
-    Empire,
-
-    /// Released in 1983.
-    Jedi,
-}
-
-pub struct Human<'a>(&'a StarWarsChar);
-
-/// A humanoid creature in the Star Wars universe.
-#[Object]
-impl<'a> Human<'a> {
-    /// The id of the human.
-    async fn id(&self) -> &str {
-        self.0.id
-    }
-
-    /// The name of the human.
-    async fn name(&self) -> &str {
-        self.0.name
-    }
-
-    /// The friends of the human, or an empty list if they have none.
-    async fn friends<'ctx>(&self, ctx: &Context<'ctx>) -> Vec<Character<'ctx>> {
-        let star_wars = ctx.data_unchecked::<StarWars>();
-        star_wars
-            .friends(self.0)
-            .into_iter()
-            .map(|ch| {
-                if ch.is_human {
-                    Human(ch).into()
-                } else {
-                    Droid(ch).into()
-                }
-            })
-            .collect()
-    }
-
-    /// Which movies they appear in.
-    async fn appears_in(&self) -> &[Episode] {
-        &self.0.appears_in
-    }
-
-    /// The home planet of the human, or null if unknown.
-    async fn home_planet(&self) -> &Option<&str> {
-        &self.0.home_planet
-    }
-}
-
-pub struct Droid<'a>(&'a StarWarsChar);
-
-/// A mechanical creature in the Star Wars universe.
-#[Object]
-impl<'a> Droid<'a> {
-    /// The id of the droid.
-    async fn id(&self) -> &str {
-        self.0.id
-    }
-
-    /// The name of the droid.
-    async fn name(&self) -> &str {
-        self.0.name
-    }
-
-    /// The friends of the droid, or an empty list if they have none.
-    async fn friends<'ctx>(&self, ctx: &Context<'ctx>) -> Vec<Character<'ctx>> {
-        let star_wars = ctx.data_unchecked::<StarWars>();
-        star_wars
-            .friends(self.0)
-            .into_iter()
-            .map(|ch| {
-                if ch.is_human {
-                    Human(ch).into()
-                } else {
-                    Droid(ch).into()
-                }
-            })
-            .collect()
-    }
-
-    /// Which movies they appear in.
-    async fn appears_in(&self) -> &[Episode] {
-        &self.0.appears_in
-    }
-
-    /// The primary function of the droid.
-    async fn primary_function(&self) -> &Option<&str> {
-        &self.0.primary_function
-    }
-}
-
-pub struct QueryRoot;
-
-#[Object]
-impl QueryRoot {
-    async fn hero<'a>(
-        &self,
-        ctx: &Context<'a>,
-        #[graphql(
-            desc = "If omitted, returns the hero of the whole saga. If provided, returns the hero of that particular episode."
-        )]
-        episode: Option<Episode>,
-    ) -> Character<'a> {
-        let star_wars = ctx.data_unchecked::<StarWars>();
-        match episode {
-            Some(episode) => {
-                if episode == Episode::Empire {
-                    Human(star_wars.chars.get(star_wars.luke).unwrap()).into()
-                } else {
-                    Droid(star_wars.chars.get(star_wars.artoo).unwrap()).into()
-                }
-            }
-            None => Human(star_wars.chars.get(star_wars.luke).unwrap()).into(),
+impl<'a> From<Episode> for FieldValue<'a> {
+    fn from(value: Episode) -> Self {
+        match value {
+            Episode::NewHope => FieldValue::value("NEW_HOPE"),
+            Episode::Empire => FieldValue::value("EMPIRE"),
+            Episode::Jedi => FieldValue::value("JEDI"),
         }
     }
-
-    async fn human<'a>(
-        &self,
-        ctx: &Context<'a>,
-        #[graphql(desc = "id of the human")] id: String,
-    ) -> Option<Human<'a>> {
-        ctx.data_unchecked::<StarWars>().human(&id).map(Human)
-    }
-
-    async fn humans<'a>(
-        &self,
-        ctx: &Context<'a>,
-        after: Option<String>,
-        before: Option<String>,
-        first: Option<i32>,
-        last: Option<i32>,
-    ) -> Result<Connection<usize, Human<'a>>> {
-        let humans = ctx.data_unchecked::<StarWars>().humans().to_vec();
-        query_characters(after, before, first, last, &humans, Human).await
-    }
-
-    async fn droid<'a>(
-        &self,
-        ctx: &Context<'a>,
-        #[graphql(desc = "id of the droid")] id: String,
-    ) -> Option<Droid<'a>> {
-        ctx.data_unchecked::<StarWars>().droid(&id).map(Droid)
-    }
-
-    async fn droids<'a>(
-        &self,
-        ctx: &Context<'a>,
-        after: Option<String>,
-        before: Option<String>,
-        first: Option<i32>,
-        last: Option<i32>,
-    ) -> Result<Connection<usize, Droid<'a>>> {
-        let droids = ctx.data_unchecked::<StarWars>().droids().to_vec();
-        query_characters(after, before, first, last, &droids, Droid).await
-    }
 }
 
-#[derive(Interface)]
-#[allow(clippy::duplicated_attributes)]
-#[graphql(
-    field(name = "id", ty = "&str"),
-    field(name = "name", ty = "&str"),
-    field(name = "friends", ty = "Vec<Character<'ctx>>"),
-    field(name = "appears_in", ty = "&[Episode]")
-)]
-pub enum Character<'a> {
-    Human(Human<'a>),
-    Droid(Droid<'a>),
-}
+pub fn schema() -> Result<Schema, SchemaError> {
+    let episode = Enum::new("Episode")
+        .item(EnumItem::new("NEW_HOPE").description("Released in 1977."))
+        .item(EnumItem::new("EMPIRE").description("Released in 1980."))
+        .item(EnumItem::new("JEDI").description("Released in 1983."));
 
-async fn query_characters<'a, F, T>(
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-    characters: &[&'a StarWarsChar],
-    map_to: F,
-) -> Result<Connection<usize, T>>
-where
-    F: Fn(&'a StarWarsChar) -> T,
-    T: OutputType,
-{
-    query(
-        after,
-        before,
-        first,
-        last,
-        |after, before, first, last| async move {
-            let mut start = 0usize;
-            let mut end = characters.len();
+    let character = Interface::new("Character")
+        .field(InterfaceField::new(
+            "id",
+            TypeRef::named_nn(TypeRef::STRING),
+        ))
+        .field(InterfaceField::new(
+            "name",
+            TypeRef::named_nn(TypeRef::STRING),
+        ))
+        .field(InterfaceField::new(
+            "friends",
+            TypeRef::named_nn_list_nn("Character"),
+        ))
+        .field(InterfaceField::new(
+            "appearsIn",
+            TypeRef::named_nn_list_nn(episode.type_name()),
+        ));
 
-            if let Some(after) = after {
-                if after >= characters.len() {
-                    return Ok(Connection::new(false, false));
-                }
-                start = after + 1;
-            }
+    let human = Object::new("Human")
+        .description("A humanoid creature in the Star Wars universe.")
+        .implement(character.type_name())
+        .field(
+            Field::new("id", TypeRef::named_nn(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(Some(Value::from(char.id)))
+                })
+            })
+            .description("The id of the human."),
+        )
+        .field(
+            Field::new("name", TypeRef::named_nn(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(Some(Value::from(char.name)))
+                })
+            })
+            .description("The name of the human."),
+        )
+        .field(
+            Field::new(
+                "friends",
+                TypeRef::named_nn_list_nn(character.type_name()),
+                |ctx| {
+                    FieldFuture::new(async move {
+                        let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                        let starwars = ctx.data::<StarWars>()?;
+                        let friends = starwars.friends(char);
+                        Ok(Some(FieldValue::list(friends.into_iter().map(|friend| {
+                            FieldValue::borrowed_any(friend).with_type(if friend.is_human {
+                                "Human"
+                            } else {
+                                "Droid"
+                            })
+                        }))))
+                    })
+                },
+            )
+            .description("The friends of the human, or an empty list if they have none."),
+        )
+        .field(
+            Field::new(
+                "appearsIn",
+                TypeRef::named_nn_list_nn(episode.type_name()),
+                |ctx| {
+                    FieldFuture::new(async move {
+                        let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                        Ok(Some(FieldValue::list(
+                            char.appears_in.iter().copied().map(FieldValue::from),
+                        )))
+                    })
+                },
+            )
+            .description("Which movies they appear in."),
+        )
+        .field(
+            Field::new("homePlanet", TypeRef::named(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(char.home_planet.map(Value::from))
+                })
+            })
+            .description("The home planet of the human, or null if unknown."),
+        );
 
-            if let Some(before) = before {
-                if before == 0 {
-                    return Ok(Connection::new(false, false));
-                }
-                end = before;
-            }
+    let droid = Object::new("Droid")
+        .description("A mechanical creature in the Star Wars universe.")
+        .implement(character.type_name())
+        .field(
+            Field::new("id", TypeRef::named_nn(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(Some(Value::from(char.id)))
+                })
+            })
+            .description("The id of the droid."),
+        )
+        .field(
+            Field::new("name", TypeRef::named_nn(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(Some(Value::from(char.name)))
+                })
+            })
+            .description("The name of the droid."),
+        )
+        .field(
+            Field::new(
+                "friends",
+                TypeRef::named_nn_list_nn(character.type_name()),
+                |ctx| {
+                    FieldFuture::new(async move {
+                        let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                        let starwars = ctx.data::<StarWars>()?;
+                        let friends = starwars.friends(char);
+                        Ok(Some(FieldValue::list(friends.into_iter().map(|friend| {
+                            FieldValue::borrowed_any(friend).with_type(if friend.is_human {
+                                "Human"
+                            } else {
+                                "Droid"
+                            })
+                        }))))
+                    })
+                },
+            )
+            .description("The friends of the droid, or an empty list if they have none."),
+        )
+        .field(
+            Field::new(
+                "appearsIn",
+                TypeRef::named_nn_list_nn(episode.type_name()),
+                |ctx| {
+                    FieldFuture::new(async move {
+                        let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                        Ok(Some(FieldValue::list(
+                            char.appears_in.iter().copied().map(FieldValue::from),
+                        )))
+                    })
+                },
+            )
+            .description("Which movies they appear in."),
+        )
+        .field(
+            Field::new("primaryFunction", TypeRef::named(TypeRef::STRING), |ctx| {
+                FieldFuture::new(async move {
+                    let char = ctx.parent_value.try_downcast_ref::<StarWarsChar>()?;
+                    Ok(char.primary_function.map(Value::from))
+                })
+            })
+            .description("The primary function of the droid."),
+        );
 
-            let mut slice = &characters[start..end];
+    let query = Object::new("Qurey")
+        .field(
+            Field::new("hero", TypeRef::named_nn(character.type_name()), |ctx| {
+                FieldFuture::new(async move {
+                    let starwars = ctx.data::<StarWars>()?;
+                    let episode = match ctx.args.get("episode") {
+                        Some(episode) => Some(match episode.enum_name()? {
+                            "NEW_HOPE" => Episode::NewHope,
+                            "EMPIRE" => Episode::Empire,
+                            "JEDI" => Episode::Jedi,
+                            _ => unreachable!(),
+                        }),
+                        None => None,
+                    };
+                    let value = match episode {
+                        Some(episode) => {
+                            if episode == Episode::Empire {
+                                FieldValue::borrowed_any(starwars.chars.get(starwars.luke).unwrap())
+                                    .with_type("Human")
+                            } else {
+                                FieldValue::borrowed_any(
+                                    starwars.chars.get(starwars.artoo).unwrap(),
+                                )
+                                .with_type("Droid")
+                            }
+                        }
+                        None => {
+                            FieldValue::borrowed_any(starwars.chars.get(starwars.luke).unwrap())
+                                .with_type("Human")
+                        }
+                    };
+                    Ok(Some(value))
+                })
+            })
+            .argument(InputValue::new(
+                "episode",
+                TypeRef::named(episode.type_name()),
+            )),
+        )
+        .field(
+            Field::new("human", TypeRef::named(human.type_name()), |ctx| {
+                FieldFuture::new(async move {
+                    let starwars = ctx.data::<StarWars>()?;
+                    let id = ctx.args.try_get("id")?;
+                    Ok(starwars
+                        .human(id.string()?)
+                        .map(|human| FieldValue::borrowed_any(human)))
+                })
+            })
+            .argument(InputValue::new("id", TypeRef::named_nn(TypeRef::STRING))),
+        )
+        .field(Field::new(
+            "humans",
+            TypeRef::named_nn_list_nn(human.type_name()),
+            |ctx| {
+                FieldFuture::new(async move {
+                    let starwars = ctx.data::<StarWars>()?;
+                    let humans = starwars.humans();
+                    Ok(Some(FieldValue::list(
+                        humans
+                            .into_iter()
+                            .map(|human| FieldValue::borrowed_any(human)),
+                    )))
+                })
+            },
+        ))
+        .field(
+            Field::new("droid", TypeRef::named(human.type_name()), |ctx| {
+                FieldFuture::new(async move {
+                    let starwars = ctx.data::<StarWars>()?;
+                    let id = ctx.args.try_get("id")?;
+                    Ok(starwars
+                        .droid(id.string()?)
+                        .map(|droid| FieldValue::borrowed_any(droid)))
+                })
+            })
+            .argument(InputValue::new("id", TypeRef::named_nn(TypeRef::STRING))),
+        )
+        .field(Field::new(
+            "droids",
+            TypeRef::named_nn_list_nn(human.type_name()),
+            |ctx| {
+                FieldFuture::new(async move {
+                    let starwars = ctx.data::<StarWars>()?;
+                    let droids = starwars.droids();
+                    Ok(Some(FieldValue::list(
+                        droids
+                            .into_iter()
+                            .map(|droid| FieldValue::borrowed_any(droid)),
+                    )))
+                })
+            },
+        ));
 
-            if let Some(first) = first {
-                slice = &slice[..first.min(slice.len())];
-                end -= first.min(slice.len());
-            } else if let Some(last) = last {
-                slice = &slice[slice.len() - last.min(slice.len())..];
-                start = end - last.min(slice.len());
-            }
-
-            let mut connection = Connection::new(start > 0, end < characters.len());
-            connection.edges.extend(
-                slice
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, item)| Edge::new(start + idx, (map_to)(item))),
-            );
-            Ok::<_, Error>(connection)
-        },
-    )
-    .await
+    Schema::build(query.type_name(), None, None)
+        .register(episode)
+        .register(character)
+        .register(human)
+        .register(droid)
+        .register(query)
+        .data(StarWars::new())
+        .finish()
 }

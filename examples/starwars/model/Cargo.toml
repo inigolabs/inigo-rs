@@ -3,8 +3,8 @@
 name = "starwars"
 version = "0.1.1"
 authors = ["sunli <scott_s829@163.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-async-graphql = "6.0.11"
+async-graphql = { version = "7", features = ["dynamic-schema"] }
 slab = "0.4.9"

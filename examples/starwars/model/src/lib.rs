@@ -2,11 +2,21 @@ mod model;
 
 use std::collections::HashMap;
 
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use model::Episode;
-pub use model::QueryRoot;
+pub use model::schema;
 use slab::Slab;
-pub type StarWarsSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
+
+/// One of the films in the Star Wars Trilogy
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Episode {
+    /// Released in 1977.
+    NewHope,
+
+    /// Released in 1980.
+    Empire,
+
+    /// Released in 1983.
+    Jedi,
+}
 
 pub struct StarWarsChar {
     id: &'static str,
