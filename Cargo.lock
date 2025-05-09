@@ -109,9 +109,9 @@ checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
 name = "apollo-compiler"
-version = "1.27.0"
+version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bb8a0d8a54b31d8a9efcc25d4be3d949d823e8105a710861d6d4a4ef811b5f2"
+checksum = "b3eb9f97e5cc573361cdeb65204fbb7c459c9a9d5a6bec48ee37355c642a06ad"
 dependencies = [
  "ahash",
  "apollo-parser",
@@ -120,7 +120,7 @@ dependencies = [
  "rowan",
  "serde",
  "serde_json_bytes",
- "thiserror 1.0.69",
+ "thiserror 2.0.11",
  "triomphe",
  "typed-arena",
 ]
@@ -138,9 +138,9 @@ dependencies = [
 
 [[package]]
 name = "apollo-federation"
-version = "1.61.4"
+version = "1.61.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b2ab85807d33fae8896134d2ffedae8bbcae34dbacaf7661b8c8a9c9fc7b351"
+checksum = "b79d4a46f54758a5e9b109a3e0b7c240063398d7a9d3a8a2f0c57f531f75fff4"
 dependencies = [
  "apollo-compiler",
  "derive_more",
@@ -175,9 +175,9 @@ dependencies = [
 
 [[package]]
 name = "apollo-router"
-version = "1.61.4"
+version = "1.61.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71d54a31ba317aeeb05d9b001747314dc9b31d72deeb9a840052251b9884d44c"
+checksum = "00c5e9ec2da93e8d8d318030fb0730a316a293c263e47d4d21b02fbc0266a06e"
 dependencies = [
  "access-json",
  "ahash",
@@ -2494,7 +2494,7 @@ checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
 
 [[package]]
 name = "inigo-rs"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "apollo-router",
